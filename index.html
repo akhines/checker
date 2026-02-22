@@ -1,0 +1,400 @@
+import { useState, useCallback, useRef } from "react";
+
+const SOCRATA_ENDPOINT = "https://opendata.maryland.gov/resource/x8a5-h2sy.json";
+
+// Fuzzy name match: checks if any token from decedent name appears in owner name
+function nameFuzzyMatch(decedentName, ownerName) {
+  if (!decedentName || !ownerName) return false;
+  const normalize = (s) => s.toUpperCase().replace(/[^A-Z\s]/g, "").trim();
+  const decTokens = normalize(decedentName).split(/\s+/).filter(t => t.length > 1);
+  const ownerNorm = normalize(ownerName);
+  // All significant tokens of decedent must appear in owner name
+  return decTokens.every(tok => ownerNorm.includes(tok));
+}
+
+async function lookupProperty(row) {
+  // Normalize address components
+  const addrNum = (row.address_number || row.house_number || row.street_number || "").toString().trim();
+  const streetName = (row.street_name || row.street || row.address_street || "").toString().trim().toUpperCase();
+  const premiseCity = (row.city || row.premise_city || "").toString().trim().toUpperCase();
+  const zipCode = (row.zip || row.zip_code || row.postal_code || "").toString().trim().replace(/\D/g, "").substring(0,5);
+
+  // Try to parse combined address field if individual parts not found
+  let parsedNum = addrNum, parsedStreet = streetName;
+  if (!addrNum && !streetName) {
+    const combined = (row.address || row.property_address || row.mailing_address || "").toString().trim();
+    const match = combined.match(/^(\d+)\s+(.+?)(?:,.*)?$/);
+    if (match) {
+      parsedNum = match[1];
+      parsedStreet = match[2].toUpperCase().replace(/\b(ST|STREET|AVE|AVENUE|RD|ROAD|DR|DRIVE|LN|LANE|BLVD|BOULEVARD|CT|COURT|PL|PLACE|WAY|CIR|CIRCLE)\b\.?/g, m => m).trim();
+    }
+  }
+
+  if (!parsedNum && !parsedStreet) return null;
+
+  let query = `$limit=5&$where=`;
+  const conditions = [];
+  if (parsedNum) conditions.push(`premise_address_number='${parsedNum}'`);
+  if (parsedStreet) conditions.push(`upper(premise_street_name) like '%25${encodeURIComponent(parsedStreet.split(" ")[0])}%25'`);
+  if (premiseCity) conditions.push(`upper(premise_city) like '%25${encodeURIComponent(premiseCity)}%25'`);
+  if (zipCode) conditions.push(`premise_zip_code='${zipCode}'`);
+
+  query += conditions.join(" AND ");
+
+  const url = `${SOCRATA_ENDPOINT}?${query}`;
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.length > 0 ? data : null;
+  } catch {
+    return null;
+  }
+}
+
+function detectColumns(headers) {
+  const h = headers.map(h => h.toLowerCase().replace(/[^a-z0-9]/g, "_"));
+  const find = (candidates) => headers[h.findIndex(col => candidates.some(c => col.includes(c)))] || null;
+  return {
+    decedentCol: find(["decedent", "deceased", "name", "owner", "first"]),
+    addressCol: find(["address", "street", "property"]),
+  };
+}
+
+function parseCSV(text) {
+  const lines = text.trim().split("\n");
+  if (lines.length < 2) return { headers: [], rows: [] };
+  const parseRow = (line) => {
+    const result = [];
+    let cur = "", inQuote = false;
+    for (let i = 0; i < line.length; i++) {
+      if (line[i] === '"') { inQuote = !inQuote; continue; }
+      if (line[i] === "," && !inQuote) { result.push(cur.trim()); cur = ""; continue; }
+      cur += line[i];
+    }
+    result.push(cur.trim());
+    return result;
+  };
+  const headers = parseRow(lines[0]);
+  const rows = lines.slice(1).filter(l => l.trim()).map(line => {
+    const vals = parseRow(line);
+    return Object.fromEntries(headers.map((h, i) => [h, vals[i] || ""]));
+  });
+  return { headers, rows };
+}
+
+function rowToCSVLine(headers, row) {
+  return headers.map(h => `"${(row[h] || "").toString().replace(/"/g, '""')}"`).join(",");
+}
+
+export default function App() {
+  const [file, setFile] = useState(null);
+  const [csvData, setCsvData] = useState(null);
+  const [decedentCol, setDecedentCol] = useState("");
+  const [addressCols, setAddressCols] = useState({ combined: "", num: "", street: "", city: "", zip: "" });
+  const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState({ done: 0, total: 0, matches: 0, errors: 0 });
+  const [results, setResults] = useState(null);
+  const [dragging, setDragging] = useState(false);
+  const [log, setLog] = useState([]);
+  const abortRef = useRef(false);
+
+  const handleFile = useCallback((f) => {
+    if (!f || !f.name.endsWith(".csv")) return;
+    setFile(f);
+    setResults(null);
+    setLog([]);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const parsed = parseCSV(e.target.result);
+      setCsvData(parsed);
+      const detected = detectColumns(parsed.headers);
+      setDecedentCol(detected.decedentCol || parsed.headers[0] || "");
+      setAddressCols({ combined: detected.addressCol || "", num: "", street: "", city: "", zip: "" });
+    };
+    reader.readAsText(f);
+  }, []);
+
+  const handleDrop = useCallback((e) => {
+    e.preventDefault();
+    setDragging(false);
+    handleFile(e.dataTransfer.files[0]);
+  }, [handleFile]);
+
+  const handleRun = async () => {
+    if (!csvData || !decedentCol) return;
+    setRunning(true);
+    setResults(null);
+    setLog([]);
+    abortRef.current = false;
+    const matches = [];
+    const extraHeaders = ["_Verified_Owner_Name", "_Verified_Address", "_Match_Score"];
+    const total = csvData.rows.length;
+    setProgress({ done: 0, total, matches: 0, errors: 0 });
+
+    for (let i = 0; i < csvData.rows.length; i++) {
+      if (abortRef.current) break;
+      const row = csvData.rows[i];
+      const decedent = row[decedentCol] || "";
+
+      // Build lookup row from address columns
+      const lookupRow = {
+        address: row[addressCols.combined] || "",
+        address_number: row[addressCols.num] || "",
+        street_name: row[addressCols.street] || "",
+        city: row[addressCols.city] || "",
+        zip: row[addressCols.zip] || "",
+      };
+
+      let matched = false;
+      let ownerFound = "";
+      let addrFound = "";
+      let score = "";
+
+      try {
+        const records = await lookupProperty(lookupRow);
+        if (records && records.length > 0) {
+          for (const rec of records) {
+            const o1 = rec.owner_name_1 || "";
+            const o2 = rec.owner_name_2 || "";
+            if (nameFuzzyMatch(decedent, o1) || nameFuzzyMatch(decedent, o2)) {
+              matched = true;
+              ownerFound = [o1, o2].filter(Boolean).join(" / ");
+              addrFound = `${rec.premise_address_number || ""} ${rec.premise_street_name || ""}, ${rec.premise_city || ""} ${rec.premise_zip_code || ""}`.trim();
+              score = "Name Match";
+              break;
+            }
+          }
+          if (!matched) {
+            setLog(l => [...l, `Row ${i+1}: "${decedent}" — address found but name mismatch (owner: ${records[0].owner_name_1 || "?"})`]);
+          }
+        } else {
+          setLog(l => [...l, `Row ${i+1}: "${decedent}" — no property record found`]);
+        }
+      } catch {
+        setLog(l => [...l, `Row ${i+1}: API error`]);
+      }
+
+      if (matched) {
+        matches.push({ ...row, _Verified_Owner_Name: ownerFound, _Verified_Address: addrFound, _Match_Score: score });
+      }
+
+      setProgress({ done: i + 1, total, matches: matched ? matches.length : matches.length, errors: 0 });
+      // Throttle
+      await new Promise(r => setTimeout(r, 120));
+    }
+
+    const outHeaders = [...csvData.headers, ...extraHeaders];
+    const csvLines = [outHeaders.join(","), ...matches.map(r => rowToCSVLine(outHeaders, r))];
+    setResults({ csv: csvLines.join("\n"), count: matches.length, headers: outHeaders });
+    setRunning(false);
+  };
+
+  const downloadCSV = () => {
+    if (!results) return;
+    const blob = new Blob([results.csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `verified_matches_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+  };
+
+  const pct = progress.total ? Math.round((progress.done / progress.total) * 100) : 0;
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#0d1117", color: "#e6edf3", fontFamily: "'Georgia', 'Times New Roman', serif", padding: "2rem" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Source+Code+Pro:wght@400;600&display=swap');
+        * { box-sizing: border-box; }
+        .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1.5rem; margin-bottom: 1.5rem; }
+        .label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.12em; color: #8b949e; margin-bottom: 0.4rem; font-family: 'Source Code Pro', monospace; }
+        select, input[type=text] { background: #0d1117; border: 1px solid #30363d; color: #e6edf3; border-radius: 4px; padding: 0.5rem 0.75rem; font-size: 0.88rem; width: 100%; font-family: 'Source Code Pro', monospace; outline: none; }
+        select:focus, input:focus { border-color: #58a6ff; }
+        .btn { display: inline-block; padding: 0.7rem 1.5rem; border-radius: 6px; border: none; cursor: pointer; font-family: 'Source Code Pro', monospace; font-size: 0.85rem; font-weight: 600; letter-spacing: 0.05em; transition: all 0.2s; }
+        .btn-primary { background: #238636; color: #fff; }
+        .btn-primary:hover:not(:disabled) { background: #2ea043; }
+        .btn-primary:disabled { background: #1a3d22; color: #4d7a55; cursor: not-allowed; }
+        .btn-blue { background: #1f6feb; color: #fff; }
+        .btn-blue:hover { background: #388bfd; }
+        .btn-danger { background: #da3633; color: #fff; font-size: 0.75rem; padding: 0.4rem 0.8rem; }
+        .btn-danger:hover { background: #f85149; }
+        .drop-zone { border: 2px dashed #30363d; border-radius: 8px; padding: 3rem 2rem; text-align: center; cursor: pointer; transition: all 0.2s; }
+        .drop-zone.active { border-color: #58a6ff; background: rgba(88,166,255,0.05); }
+        .progress-bar { height: 6px; background: #21262d; border-radius: 3px; overflow: hidden; margin-top: 0.75rem; }
+        .progress-fill { height: 100%; background: linear-gradient(90deg, #238636, #2ea043); border-radius: 3px; transition: width 0.3s; }
+        .log-box { background: #0d1117; border: 1px solid #21262d; border-radius: 4px; padding: 0.75rem; max-height: 160px; overflow-y: auto; font-family: 'Source Code Pro', monospace; font-size: 0.75rem; color: #8b949e; margin-top: 1rem; }
+        .badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.75rem; font-family: 'Source Code Pro', monospace; font-weight: 600; }
+        .badge-green { background: #1a3d22; color: #3fb950; }
+        .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+        .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; }
+        h1 { font-family: 'Playfair Display', serif; font-size: 1.8rem; font-weight: 700; margin: 0 0 0.25rem; color: #e6edf3; }
+        h2 { font-family: 'Playfair Display', serif; font-size: 1.1rem; font-weight: 400; color: #8b949e; margin: 0 0 1.5rem; font-style: italic; }
+        .section-title { font-family: 'Playfair Display', serif; font-size: 1rem; color: #58a6ff; margin: 0 0 1rem; border-bottom: 1px solid #21262d; padding-bottom: 0.5rem; }
+        .hint { font-size: 0.75rem; color: #6e7681; margin-top: 0.3rem; font-family: 'Source Code Pro', monospace; }
+        .tag { display: inline-block; background: #21262d; border-radius: 4px; padding: 0.15rem 0.5rem; font-size: 0.72rem; font-family: 'Source Code Pro', monospace; color: #8b949e; }
+      `}</style>
+
+      <div style={{ maxWidth: 800, margin: "0 auto" }}>
+        {/* Header */}
+        <div style={{ marginBottom: "2rem" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.5rem" }}>
+            <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#238636" }}></div>
+            <span style={{ fontFamily: "'Source Code Pro', monospace", fontSize: "0.72rem", color: "#8b949e", letterSpacing: "0.1em", textTransform: "uppercase" }}>Maryland SDAT · Public Records</span>
+          </div>
+          <h1>Homeowner Verification</h1>
+          <h2>Cross-reference your prospect list against Maryland property records</h2>
+        </div>
+
+        {/* Upload */}
+        <div className="card">
+          <div className="section-title">① Upload Your CSV</div>
+          <div
+            className={`drop-zone ${dragging ? "active" : ""}`}
+            onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={handleDrop}
+            onClick={() => document.getElementById("csv-input").click()}
+          >
+            <input id="csv-input" type="file" accept=".csv" style={{ display: "none" }} onChange={e => handleFile(e.target.files[0])} />
+            {file ? (
+              <div>
+                <div style={{ fontSize: "1.1rem", marginBottom: "0.4rem" }}>📄 {file.name}</div>
+                <span className="badge badge-green">{csvData?.rows.length.toLocaleString()} records loaded</span>
+              </div>
+            ) : (
+              <div>
+                <div style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>⬆️</div>
+                <div style={{ color: "#8b949e", fontSize: "0.9rem" }}>Drop your CSV here, or click to browse</div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Column Mapping */}
+        {csvData && (
+          <div className="card">
+            <div className="section-title">② Map Your Columns</div>
+            <div style={{ marginBottom: "1.25rem" }}>
+              <div className="label">Decedent / Homeowner Name Column</div>
+              <select value={decedentCol} onChange={e => setDecedentCol(e.target.value)}>
+                {csvData.headers.map(h => <option key={h} value={h}>{h}</option>)}
+              </select>
+              <div className="hint">The column containing the name to verify against public records</div>
+            </div>
+
+            <div style={{ marginBottom: "0.75rem", color: "#8b949e", fontSize: "0.8rem", fontFamily: "Source Code Pro" }}>
+              Property Address — choose ONE style:
+            </div>
+
+            <div style={{ marginBottom: "1rem" }}>
+              <div className="label">Combined Address Column (e.g. "123 Main St")</div>
+              <select value={addressCols.combined} onChange={e => setAddressCols(a => ({...a, combined: e.target.value, num: "", street: ""}))}>
+                <option value="">— not using combined —</option>
+                {csvData.headers.map(h => <option key={h} value={h}>{h}</option>)}
+              </select>
+            </div>
+
+            {!addressCols.combined && (
+              <div className="row3" style={{ marginBottom: "1rem" }}>
+                <div>
+                  <div className="label">House Number</div>
+                  <select value={addressCols.num} onChange={e => setAddressCols(a => ({...a, num: e.target.value}))}>
+                    <option value="">—</option>
+                    {csvData.headers.map(h => <option key={h} value={h}>{h}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <div className="label">Street Name</div>
+                  <select value={addressCols.street} onChange={e => setAddressCols(a => ({...a, street: e.target.value}))}>
+                    <option value="">—</option>
+                    {csvData.headers.map(h => <option key={h} value={h}>{h}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <div className="label">City</div>
+                  <select value={addressCols.city} onChange={e => setAddressCols(a => ({...a, city: e.target.value}))}>
+                    <option value="">—</option>
+                    {csvData.headers.map(h => <option key={h} value={h}>{h}</option>)}
+                  </select>
+                </div>
+              </div>
+            )}
+
+            <div>
+              <div className="label">ZIP Code Column (recommended)</div>
+              <select value={addressCols.zip} onChange={e => setAddressCols(a => ({...a, zip: e.target.value}))}>
+                <option value="">— optional —</option>
+                {csvData.headers.map(h => <option key={h} value={h}>{h}</option>)}
+              </select>
+            </div>
+          </div>
+        )}
+
+        {/* Run */}
+        {csvData && (
+          <div className="card">
+            <div className="section-title">③ Verify Against SDAT</div>
+            <div style={{ display: "flex", gap: "1rem", alignItems: "center", flexWrap: "wrap" }}>
+              <button className="btn btn-primary" onClick={handleRun} disabled={running || !decedentCol}>
+                {running ? `Checking… ${progress.done}/${progress.total}` : "▶ Run Verification"}
+              </button>
+              {running && (
+                <button className="btn btn-danger" onClick={() => { abortRef.current = true; }}>Stop</button>
+              )}
+              {progress.total > 0 && (
+                <span style={{ fontFamily: "Source Code Pro", fontSize: "0.82rem", color: "#8b949e" }}>
+                  {progress.done}/{progress.total} checked &nbsp;·&nbsp; <span style={{ color: "#3fb950" }}>{results?.count ?? progress.matches} matches</span>
+                </span>
+              )}
+            </div>
+
+            {running && (
+              <div className="progress-bar">
+                <div className="progress-fill" style={{ width: `${pct}%` }}></div>
+              </div>
+            )}
+
+            {log.length > 0 && (
+              <div className="log-box">
+                {log.slice(-60).map((l, i) => <div key={i}>{l}</div>)}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Results */}
+        {results && (
+          <div className="card" style={{ border: "1px solid #238636" }}>
+            <div className="section-title" style={{ color: "#3fb950" }}>✓ Verification Complete</div>
+            <div style={{ display: "flex", gap: "2rem", marginBottom: "1.25rem", flexWrap: "wrap" }}>
+              <div>
+                <div className="label">Total Checked</div>
+                <div style={{ fontSize: "1.6rem", fontFamily: "Playfair Display, serif" }}>{progress.done.toLocaleString()}</div>
+              </div>
+              <div>
+                <div className="label">Verified Matches</div>
+                <div style={{ fontSize: "1.6rem", fontFamily: "Playfair Display, serif", color: "#3fb950" }}>{results.count.toLocaleString()}</div>
+              </div>
+              <div>
+                <div className="label">Match Rate</div>
+                <div style={{ fontSize: "1.6rem", fontFamily: "Playfair Display, serif" }}>
+                  {progress.done ? Math.round((results.count / progress.done) * 100) : 0}%
+                </div>
+              </div>
+            </div>
+            <button className="btn btn-blue" onClick={downloadCSV}>⬇ Download Verified Matches CSV</button>
+            <div className="hint" style={{ marginTop: "0.75rem" }}>
+              Output includes your original columns plus: <span className="tag">_Verified_Owner_Name</span> <span className="tag">_Verified_Address</span> <span className="tag">_Match_Score</span>
+            </div>
+          </div>
+        )}
+
+        <div style={{ marginTop: "2rem", textAlign: "center", fontFamily: "Source Code Pro", fontSize: "0.7rem", color: "#4d7a55" }}>
+          Data sourced from Maryland Open Data · SDAT Real Property Assessments · Updated Tuesday–Saturday
+        </div>
+      </div>
+    </div>
+  );
+}

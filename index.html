@@ -311,18 +311,30 @@ function parseSDATName(sdatOwner) {
   return { last: tokens[0], first: tokens.slice(1).join(" ") };
 }
 
-// Classify match given separate first + last from CSV against a SDAT owner string
+// Classify match given separate first + last from CSV against a SDAT owner string.
+// SDAT stores names as "LASTNAME FIRSTNAME [MIDDLE]" so we must handle that format.
+// We also strip suffixes from the decedent last name before comparing (handles "KROL SR").
 function classifyMatch(decFirst, decLast, sdatOwner) {
-  const dFirst = normName(decFirst);
-  const dLast  = normName(decLast);
-  const sNorm  = normName(sdatOwner);
+  const dFirst   = normName(decFirst);
+  const dLastRaw = normName(decLast);
+  // Strip any suffixes that leaked into the last name field (e.g. "KROL SR" -> "KROL")
+  const dLastTokens = dLastRaw.split(" ").filter(t => t && !STRIP_SUFFIXES.has(t));
+  const dLast = dLastTokens.join(" ");
+
+  const sNorm   = normName(sdatOwner);
   const sTokens = tokenize(sdatOwner);
 
   if (!dLast) return { status:"none", reason:"No last name provided" };
   if (!sNorm)  return { status:"none", reason:"Empty SDAT owner" };
 
-  // Last name must appear in SDAT
-  if (!sNorm.includes(dLast)) {
+  // --- Last name check ---
+  // Use a word-boundary-aware check: the last name must appear as a distinct token
+  // in the SDAT string, not just as a substring (avoids DAVIS matching DAVIDSON)
+  const lastNameFound = sTokens.includes(dLast) ||
+    // Also allow substring for hyphenated/compound names longer than 4 chars
+    (dLast.length > 4 && sNorm.includes(dLast));
+
+  if (!lastNameFound) {
     return { status:"none", reason:`Last name "${dLast}" not in SDAT "${sdatOwner}"` };
   }
 
@@ -330,25 +342,31 @@ function classifyMatch(decFirst, decLast, sdatOwner) {
     return { status:"none", reason:"Last name found but no first name to verify" };
   }
 
-  // CONFIRMED: exact first name match (skip bare initials)
-  if (dFirst.length > 1 && sNorm.includes(dFirst)) {
+  // --- First name check ---
+  // SDAT format: first token = last name, remaining tokens = first + middle
+  // So we check if dFirst appears anywhere after the first token in SDAT
+  const sFirstTokens = sTokens.slice(1); // everything after SDAT last name
+  const sFirstNorm   = sFirstTokens.join(" ");
+
+  // CONFIRMED: exact first name match (not a bare initial)
+  if (dFirst.length > 1 && (sFirstTokens.includes(dFirst) || sFirstNorm.includes(dFirst))) {
     return { status:"confirmed", reason:`"${dLast}" + "${dFirst}" both matched` };
   }
 
-  // POSSIBLE: initial only in SDAT
-  if (dFirst.length > 1 && sTokens.includes(dFirst[0])) {
+  // POSSIBLE: SDAT has only an initial where we have a full first name
+  if (dFirst.length > 1 && sFirstTokens.includes(dFirst[0]) && sFirstTokens.some(t => t.length === 1)) {
     return { status:"possible", reason:`Last name matched; SDAT has initial "${dFirst[0]}" only` };
   }
 
-  // POSSIBLE: nickname match
+  // POSSIBLE: nickname match (decedent has legal name, SDAT has nickname or vice versa)
   if (dFirst.length > 1) {
     for (const nick of (NICKNAMES[dFirst] || [])) {
-      if (sNorm.includes(nick)) {
+      if (sFirstTokens.includes(nick) || sFirstNorm.includes(nick)) {
         return { status:"possible", reason:`Last name matched; nickname "${nick}" found (legal: "${dFirst}")` };
       }
     }
     for (const legal of (NICKNAME_REVERSE[dFirst] || [])) {
-      if (sNorm.includes(legal)) {
+      if (sFirstTokens.includes(legal) || sFirstNorm.includes(legal)) {
         return { status:"possible", reason:`Last name matched; "${dFirst}" may be nickname for "${legal}" in SDAT` };
       }
     }
@@ -357,9 +375,20 @@ function classifyMatch(decFirst, decLast, sdatOwner) {
   return { status:"none", reason:`Last name "${dLast}" found but no first name or nickname match in SDAT "${sdatOwner}"` };
 }
 
+// Strip suffixes from a raw last name field before searching
+// e.g. "KROL SR" -> "KROL", "SMITH JR" -> "SMITH"
+function cleanLastName(raw) {
+  const tokens = normName(raw).split(" ").filter(t => t.length > 0);
+  // Remove any trailing suffix tokens
+  while (tokens.length > 1 && STRIP_SUFFIXES.has(tokens[tokens.length - 1])) {
+    tokens.pop();
+  }
+  return tokens.join(" ");
+}
+
 // SDAT lookup by last name statewide
 async function lookupByLastName(lastName) {
-  const ln = normName(lastName);
+  const ln = cleanLastName(lastName); // strips "SR", "JR", etc. from last name field
   if (ln.length < 2) return { records:null, error:"Last name too short" };
   const where = `upper(ownname1) like '%${ln}%' OR upper(ownname2) like '%${ln}%'`;
   const url = ENDPOINT + "?$limit=20&$where=" + encodeURIComponent(where);
@@ -530,6 +559,7 @@ document.getElementById("btnRun").addEventListener("click", async () => {
     if (!decLast) {
       matchReason="No last name";
     } else {
+      // cleanLastName strips suffixes like SR/JR from the last name field before searching
       const {records,error} = await lookupByLastName(decLast);
 
       if (error && !records) {

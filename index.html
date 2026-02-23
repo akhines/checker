@@ -4,7 +4,84 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>MD Homeowner Verification</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js">
+// ---------------------------------------------------------------------------
+// DEBUG — shows raw SDAT API response + match logic for first 5 rows
+// ---------------------------------------------------------------------------
+document.getElementById("btnDebug").addEventListener("click", async () => {
+  if (!csvData) { alert("Load a CSV first."); return; }
+
+  const decFirstCol = document.getElementById("colDecFirst").value;
+  const decLastCol  = document.getElementById("colDecLast").value;
+  if (!decFirstCol || !decLastCol) { alert("Select First Name and Last Name columns first."); return; }
+
+  const panel = document.getElementById("debugPanel");
+  panel.classList.remove("hidden");
+  panel.textContent = "Running debug on first 5 rows...\n\n";
+
+  const sample = csvData.rows.slice(0, 5);
+
+  for (let i = 0; i < sample.length; i++) {
+    const row      = sample[i];
+    const decFirst = (row[decFirstCol]||"").trim();
+    const decLast  = (row[decLastCol] ||"").trim();
+    const cleaned  = cleanLastName(decLast);
+
+    panel.textContent += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
+    panel.textContent += `ROW ${i+1}: First="${decFirst}"  Last="${decLast}"\n`;
+    panel.textContent += `Searching SDAT for last name: "${cleaned}"\n`;
+
+    if (!cleaned || cleaned.length < 2) {
+      panel.textContent += "⚠ Last name too short or empty after cleaning — skipped\n\n";
+      continue;
+    }
+
+    const where = `upper(ownname1) like '%${cleaned}%' OR upper(ownname2) like '%${cleaned}%'`;
+    const url   = ENDPOINT + "?$limit=20&$where=" + encodeURIComponent(where);
+    panel.textContent += `URL: ${url}\n\n`;
+
+    try {
+      const r = await fetch(url);
+      const d = await r.json();
+
+      if (!d.length) {
+        panel.textContent += `SDAT RESPONSE: 0 records returned\n`;
+        panel.textContent += `→ Result: NO MATCH (no records for "${cleaned}")\n\n`;
+        continue;
+      }
+
+      panel.textContent += `SDAT RESPONSE: ${d.length} record(s) returned\n\n`;
+
+      d.forEach((rec, idx) => {
+        const o1 = (rec.ownname1||"").trim();
+        const o2 = (rec.ownname2||"").trim();
+        const addr = [rec.premsnum,rec.premsnam,rec.premcity,rec.premzip].filter(Boolean).join(" ");
+
+        panel.textContent += `  Record ${idx+1}:\n`;
+        panel.textContent += `    ownname1: "${o1}"\n`;
+        panel.textContent += `    ownname2: "${o2}"\n`;
+        panel.textContent += `    address:  "${addr}"\n`;
+
+        for (const candidate of [o1,o2].filter(Boolean)) {
+          const {status,reason} = classifyMatch(decFirst, decLast, candidate);
+          const icon = status==="confirmed"?"✅":status==="possible"?"⚠️":"❌";
+          panel.textContent += `    ${icon} vs "${candidate}": ${status.toUpperCase()} — ${reason}\n`;
+        }
+        panel.textContent += "\n";
+      });
+
+    } catch(e) {
+      panel.textContent += `ERROR fetching SDAT: ${e.message}\n\n`;
+    }
+
+    await new Promise(r => setTimeout(r, 300));
+  }
+
+  panel.textContent += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nDebug complete. Copy this output and share it.\n";
+  panel.scrollTop = panel.scrollHeight;
+});
+
+</script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: #0d1117; color: #e6edf3; font-family: Georgia, serif; min-height: 100vh; padding: 2rem 1rem; }
@@ -132,12 +209,14 @@
     </div>
     <div class="btn-row">
       <button class="btn-run" id="btnRun">▶&nbsp; Run Verification</button>
+      <button class="btn-run" id="btnDebug" style="background:#6e40c9;margin-left:0">🔍&nbsp; Debug First 5</button>
       <button class="btn-stop hidden" id="btnStop">■&nbsp; Stop</button>
       <span class="prog-text hidden" id="progText"></span>
     </div>
     <div class="prog-wrap hidden" id="progWrap">
       <div class="prog-fill" id="progFill" style="width:0%"></div>
     </div>
+    <div id="debugPanel" class="hidden" style="margin-top:1rem;background:#0d1117;border:1px solid #6e40c9;border-radius:4px;padding:0.75rem;font-family:monospace;font-size:0.71rem;color:#c9d1d9;max-height:500px;overflow-y:auto;white-space:pre-wrap;line-height:1.6;"></div>
     <div class="log hidden" id="logBox"></div>
   </div>
 

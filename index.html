@@ -8,7 +8,7 @@
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: #0d1117; color: #e6edf3; font-family: Georgia, serif; min-height: 100vh; padding: 2rem 1rem; }
-  .wrap { max-width: 700px; margin: 0 auto; }
+  .wrap { max-width: 720px; margin: 0 auto; }
   .eyebrow { display: flex; align-items: center; gap: 8px; font-family: monospace; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.12em; color: #3fb950; margin-bottom: 0.5rem; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: #238636; flex-shrink: 0; }
   h1 { font-size: 1.9rem; font-weight: 700; color: #fff; margin-bottom: 0.25rem; }
@@ -26,11 +26,12 @@
   select { width: 100%; background: #0d1117; border: 1px solid #30363d; color: #e6edf3; border-radius: 4px; padding: 0.45rem 0.7rem; font-size: 0.85rem; font-family: monospace; outline: none; }
   select:focus { border-color: #58a6ff; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; }
   .btn-run { background: #238636; color: #fff; border: none; border-radius: 6px; padding: 0.6rem 1.4rem; font-family: monospace; font-size: 0.85rem; font-weight: 700; cursor: pointer; transition: background 0.15s; }
   .btn-run:hover:not(:disabled) { background: #2ea043; }
   .btn-run:disabled { background: #1a3d22; color: #4d7a55; cursor: not-allowed; }
   .btn-stop { background: #da3633; color: #fff; border: none; border-radius: 6px; padding: 0.45rem 0.9rem; font-family: monospace; font-size: 0.78rem; cursor: pointer; }
-  .btn-dl { background: #1f6feb; color: #fff; border: none; border-radius: 6px; padding: 0.6rem 1.4rem; font-family: monospace; font-size: 0.85rem; font-weight: 700; cursor: pointer; margin-right: 0.5rem; margin-bottom: 0.5rem; }
+  .btn-dl { background: #1f6feb; color: #fff; border: none; border-radius: 6px; padding: 0.6rem 1.4rem; font-family: monospace; font-size: 0.85rem; font-weight: 700; cursor: pointer; }
   .btn-dl:hover { background: #388bfd; }
   .btn-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
   .prog-wrap { margin-top: 0.75rem; background: #21262d; border-radius: 3px; height: 5px; overflow: hidden; }
@@ -50,8 +51,13 @@
   .tab-legend { display: flex; gap: 0.75rem; margin-bottom: 1rem; flex-wrap: wrap; }
   .tab-pill { display: inline-flex; align-items: center; gap: 0.4rem; background: #21262d; border-radius: 4px; padding: 0.3rem 0.7rem; font-family: monospace; font-size: 0.73rem; }
   .tab-pill .swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+  .section-label { font-family: monospace; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; color: #58a6ff; margin-bottom: 0.6rem; margin-top: 0.25rem; }
+  .divider { border: none; border-top: 1px solid #21262d; margin: 1rem 0; }
   .footer { text-align: center; font-family: monospace; font-size: 0.7rem; color: #4d7a55; margin-top: 2rem; }
   .hidden { display: none; }
+  .preview-table { width: 100%; font-family: monospace; font-size: 0.7rem; border-collapse: collapse; margin-top: 0.5rem; }
+  .preview-table th { background: #21262d; color: #8b949e; padding: 0.3rem 0.5rem; text-align: left; font-weight: normal; }
+  .preview-table td { padding: 0.3rem 0.5rem; border-top: 1px solid #21262d; color: #58a6ff; }
 </style>
 </head>
 <body>
@@ -61,8 +67,9 @@
   <h1>Homeowner Verification</h1>
   <p class="subtitle">Three-tier matching — Confirmed · Possible · No Match</p>
 
+  <!-- Step 1: Upload -->
   <div class="card">
-    <div class="card-title">① Upload Your CSV</div>
+    <div class="card-title">① Upload CSV</div>
     <div class="dropzone" id="dropzone">
       <input type="file" accept=".csv" id="fileInput" class="hidden"/>
       <div id="dropEmpty">
@@ -76,33 +83,56 @@
     </div>
   </div>
 
+  <!-- Step 2: Column mapping -->
   <div class="card hidden" id="mappingCard">
-    <div class="card-title">② Confirm Column Mapping</div>
+    <div class="card-title">② Map Columns</div>
     <div class="info-box" id="detectedInfo"></div>
+
+    <div class="section-label">Decedent Name</div>
     <div class="grid2">
       <div class="field">
-        <label>Decedent Name Column *</label>
-        <select id="colName"></select>
-        <div class="hint">Full legal name — searched statewide by last name</div>
+        <label>First Name Column *</label>
+        <select id="colDecFirst"></select>
+        <div class="hint">e.g. "Decedent First Name" or split from full name</div>
       </div>
       <div class="field">
-        <label>Address Column (display only)</label>
-        <select id="colAddr"></select>
-        <div class="hint">Shown in output — not used for SDAT search</div>
+        <label>Last Name Column *</label>
+        <select id="colDecLast"></select>
+        <div class="hint">e.g. "Decedent Last Name"</div>
       </div>
     </div>
+
+    <hr class="divider"/>
+    <div class="section-label">Address (display only — search is by name statewide)</div>
+    <div class="grid2">
+      <div class="field">
+        <label>Address Column</label>
+        <select id="colAddr"></select>
+        <div class="hint">Shown in output, not used for SDAT search</div>
+      </div>
+      <div class="field">
+        <label>County Column</label>
+        <select id="colCounty"></select>
+        <div class="hint">Shown in output</div>
+      </div>
+    </div>
+
+    <hr class="divider"/>
+    <div class="section-label">Preview — first 3 rows</div>
+    <div id="previewWrap" style="overflow-x:auto;"></div>
   </div>
 
+  <!-- Step 3: Run -->
   <div class="card hidden" id="runCard">
     <div class="card-title">③ Verify Against SDAT</div>
     <div class="legend-box">
-      <span style="color:#3fb950">✅ CONFIRMED</span> — First &amp; last name both match SDAT (legal names only)<br/>
-      <span style="color:#e3b341">⚠️ POSSIBLE</span> — Last name matches, first is a nickname or initial — needs review<br/>
+      <span style="color:#3fb950">✅ CONFIRMED</span> — First &amp; last name both match SDAT owner (legal names only)<br/>
+      <span style="color:#e3b341">⚠️ POSSIBLE</span> — Last name matches, first is a nickname or initial — needs human review<br/>
       <span style="color:#f0883e">❌ NO MATCH</span> — No valid name match found in SDAT
     </div>
     <div class="btn-row">
       <button class="btn-run" id="btnRun">▶&nbsp; Run Verification</button>
-      <button class="btn-stop hidden" id="btnStop">Stop</button>
+      <button class="btn-stop hidden" id="btnStop">■&nbsp; Stop</button>
       <span class="prog-text hidden" id="progText"></span>
     </div>
     <div class="prog-wrap hidden" id="progWrap">
@@ -111,6 +141,7 @@
     <div class="log hidden" id="logBox"></div>
   </div>
 
+  <!-- Results -->
   <div class="card-success hidden" id="resultsCard">
     <div class="card-title-green">✓ Verification Complete</div>
     <div class="stats">
@@ -130,7 +161,8 @@
       All tabs include original columns +
       <span class="code-tag">_Match_Status</span>
       <span class="code-tag">_Match_Reason</span>
-      <span class="code-tag">_SDAT_Owner</span>
+      <span class="code-tag">_SDAT_First</span>
+      <span class="code-tag">_SDAT_Last</span>
       <span class="code-tag">_SDAT_Address</span>
     </div>
   </div>
@@ -145,7 +177,7 @@ let confirmedRows = [], possibleRows = [], noMatchRows = [];
 let aborted = false;
 
 // ---------------------------------------------------------------------------
-// NICKNAME MAP  legal name -> known nicknames
+// NICKNAME MAP
 // ---------------------------------------------------------------------------
 const NICKNAMES = {
   WILLIAM:["BILL","BILLY","WILL","WILLY","LIAM"],
@@ -192,7 +224,6 @@ const NICKNAMES = {
   NATHANIEL:["NAT","NATE"],
   NICHOLAS:["NICK","NICKY"],
   NORMAN:["NORM"],
-  RALPH:["RAFE"],
   RANDOLPH:["RANDY"],
   RANDY:["RANDOLPH"],
   RODNEY:["ROD"],
@@ -202,17 +233,14 @@ const NICKNAMES = {
   VICTOR:["VIC"],
   VINCENT:["VIN","VINCE","VINNY"],
   GEORGE:["GEORGIE"],
-  CARL:["KARL"],
   HOWARD:["HOWIE"],
   DOUGLAS:["DOUG"],
   DENNIS:["DENNY"],
   CLIFFORD:["CLIFF"],
   JEROME:["JERRY"],
   HERMAN:["HERM"],
-  FLOYD:["LLOYD"],
   ERNEST:["ERNIE"],
   EARL:["EARLE"],
-  // Women
   ELIZABETH:["LIZ","LIZZIE","BETH","BETTY","BETTE","ELIZA","ELLIE","LIBBY","LISA","ELISE","ELSIE"],
   BETTY:["ELIZABETH","BETTE"],
   MARGARET:["MAGGIE","MEG","PEGGY","PEG","MARGE","MARGO","RITA"],
@@ -227,15 +255,13 @@ const NICKNAMES = {
   KATHLEEN:["KATHY","KATE","KATIE","KAY"],
   CAROLYN:["CAROL","CARRIE","LYNN"],
   CAROL:["CAROLE","CAROLYN","CARRIE"],
-  DIANE:["DIANNE","DI"],
   JUDITH:["JUDY"],
   JUDY:["JUDITH"],
   PAMELA:["PAM"],
   SANDRA:["SANDY","SANDI"],
-  SHIRLEY:["SHIRL"],
   SUSAN:["SUE","SUSIE","SUZY"],
-  TERESA:["TERRY","TERI","TESS","TESSA"],
-  THERESA:["TERRY","TERI","TESS","TESSA"],
+  TERESA:["TERRY","TERI","TESS"],
+  THERESA:["TERRY","TERI","TESS"],
   DEBORAH:["DEB","DEBBIE"],
   DEBRA:["DEB","DEBBIE"],
   CYNTHIA:["CINDY"],
@@ -243,9 +269,7 @@ const NICKNAMES = {
   CONNIE:["CONSTANCE"],
   BEVERLY:["BEV"],
   FRANCES:["FRAN","FRANNIE"],
-  GERALDINE:["GERI","JERRY"],
   LILLIAN:["LILY","LIL"],
-  LORRAINE:["LORI"],
   MILDRED:["MILLIE"],
   ROSEMARY:["ROSIE","ROSE"],
   EVELYN:["EVE","EVIE"],
@@ -253,12 +277,11 @@ const NICKNAMES = {
   JOANNE:["JO","JOAN"],
   ROBERTA:["BOBBIE"],
   VIVIAN:["VIV"],
-  PHYLLIS:["PHIL"],
   DOLORES:["DEE","LOLA"],
-  MARILYN:["LYNN"],
-  WANDA:["WENDI"],
   LAURA:["LAURIE","LORI"],
   LORI:["LAURA","LAURIE"],
+  LORRAINE:["LORI"],
+  GERALDINE:["GERI","JERRY"],
 };
 
 const NICKNAME_REVERSE = {};
@@ -272,65 +295,61 @@ for (const [legal, nicks] of Object.entries(NICKNAMES)) {
 const STRIP_SUFFIXES = new Set(["JR","SR","II","III","IV","EST","TR","TRUSTEE","ETAL","ET","AL","THE","AND","OF","MR","MRS","MS","DR"]);
 
 function normName(s) {
-  return (s || "").toUpperCase().replace(/[^A-Z\s]/g," ").replace(/\s+/g," ").trim();
+  return (s||"").toUpperCase().replace(/[^A-Z\s]/g," ").replace(/\s+/g," ").trim();
 }
-
 function tokenize(s) {
   return normName(s).split(" ").filter(t => t.length > 0 && !STRIP_SUFFIXES.has(t));
 }
 
-// Core match classifier — returns { status, reason }
-function classifyMatch(decedentFull, sdatOwner) {
-  const dTokens = tokenize(decedentFull);
+// Parse SDAT owner string into { first, last }
+// SDAT format is typically "LASTNAME FIRSTNAME" or "LASTNAME FIRSTNAME MIDDLE"
+function parseSDATName(sdatOwner) {
+  const tokens = tokenize(sdatOwner);
+  if (tokens.length === 0) return { first:"", last:"" };
+  if (tokens.length === 1) return { first:"", last:tokens[0] };
+  // First token is last name in SDAT format
+  return { last: tokens[0], first: tokens.slice(1).join(" ") };
+}
+
+// Classify match given separate first + last from CSV against a SDAT owner string
+function classifyMatch(decFirst, decLast, sdatOwner) {
+  const dFirst = normName(decFirst);
+  const dLast  = normName(decLast);
+  const sNorm  = normName(sdatOwner);
   const sTokens = tokenize(sdatOwner);
-  const sNorm   = normName(sdatOwner);
 
-  if (!dTokens.length || !sTokens.length) return { status:"none", reason:"Empty name" };
+  if (!dLast) return { status:"none", reason:"No last name provided" };
+  if (!sNorm)  return { status:"none", reason:"Empty SDAT owner" };
 
-  // Last name is the last non-suffix token of the decedent name
-  // (handles "JOHN THOMAS SMITH SR" -> SMITH)
-  const dLast = dTokens[dTokens.length - 1];
-
-  // Check last name present in SDAT record
+  // Last name must appear in SDAT
   if (!sNorm.includes(dLast)) {
     return { status:"none", reason:`Last name "${dLast}" not in SDAT "${sdatOwner}"` };
   }
 
-  // Collect decedent first-name candidates (everything except the last token)
-  const dFirstCandidates = dTokens.slice(0, -1);
-  if (!dFirstCandidates.length) {
-    return { status:"none", reason:"Only one name token — cannot confirm without first name" };
+  if (!dFirst) {
+    return { status:"none", reason:"Last name found but no first name to verify" };
   }
 
-  // --- Try CONFIRMED: exact first name token match ---
-  for (const fn of dFirstCandidates) {
-    if (fn.length <= 1) continue; // skip bare initials
-    if (sNorm.includes(fn)) {
-      return { status:"confirmed", reason:`"${dLast}" + "${fn}" both matched in SDAT` };
-    }
+  // CONFIRMED: exact first name match (skip bare initials)
+  if (dFirst.length > 1 && sNorm.includes(dFirst)) {
+    return { status:"confirmed", reason:`"${dLast}" + "${dFirst}" both matched` };
   }
 
-  // --- Try POSSIBLE: initial-only in SDAT ---
-  for (const fn of dFirstCandidates) {
-    if (fn.length <= 1) continue;
-    if (sTokens.includes(fn[0])) {
-      return { status:"possible", reason:`Last name matched; SDAT has initial "${fn[0]}" only (decedent: "${fn}")` };
-    }
+  // POSSIBLE: initial only in SDAT
+  if (dFirst.length > 1 && sTokens.includes(dFirst[0])) {
+    return { status:"possible", reason:`Last name matched; SDAT has initial "${dFirst[0]}" only` };
   }
 
-  // --- Try POSSIBLE: nickname match ---
-  for (const fn of dFirstCandidates) {
-    if (fn.length <= 1) continue;
-    // decedent has legal name, SDAT might have nickname
-    for (const nick of (NICKNAMES[fn] || [])) {
+  // POSSIBLE: nickname match
+  if (dFirst.length > 1) {
+    for (const nick of (NICKNAMES[dFirst] || [])) {
       if (sNorm.includes(nick)) {
-        return { status:"possible", reason:`Last name matched; nickname "${nick}" found (legal: "${fn}")` };
+        return { status:"possible", reason:`Last name matched; nickname "${nick}" found (legal: "${dFirst}")` };
       }
     }
-    // decedent field might have nickname, SDAT has legal name
-    for (const legal of (NICKNAME_REVERSE[fn] || [])) {
+    for (const legal of (NICKNAME_REVERSE[dFirst] || [])) {
       if (sNorm.includes(legal)) {
-        return { status:"possible", reason:`Last name matched; "${fn}" may be nickname for "${legal}" in SDAT` };
+        return { status:"possible", reason:`Last name matched; "${dFirst}" may be nickname for "${legal}" in SDAT` };
       }
     }
   }
@@ -338,16 +357,12 @@ function classifyMatch(decedentFull, sdatOwner) {
   return { status:"none", reason:`Last name "${dLast}" found but no first name or nickname match in SDAT "${sdatOwner}"` };
 }
 
-// Search SDAT by last name statewide
-async function lookupByName(decedentFull) {
-  const tokens = tokenize(decedentFull);
-  if (!tokens.length) return { records:null, error:"No name tokens" };
-
-  const lastName = tokens[tokens.length - 1];
-  if (lastName.length < 2) return { records:null, error:"Last name too short" };
-
-  const where = `upper(ownname1) like '%${lastName}%' OR upper(ownname2) like '%${lastName}%'`;
-  const url   = ENDPOINT + "?$limit=20&$where=" + encodeURIComponent(where);
+// SDAT lookup by last name statewide
+async function lookupByLastName(lastName) {
+  const ln = normName(lastName);
+  if (ln.length < 2) return { records:null, error:"Last name too short" };
+  const where = `upper(ownname1) like '%${ln}%' OR upper(ownname2) like '%${ln}%'`;
+  const url = ENDPOINT + "?$limit=20&$where=" + encodeURIComponent(where);
   try {
     const r = await fetch(url);
     if (!r.ok) return { records:null, error:"API error " + r.status };
@@ -368,52 +383,92 @@ function parseCSV(text) {
     const out=[]; let cur="",q=false;
     for (let i=0;i<line.length;i++) {
       const ch=line[i];
-      if (ch==='"') { if(q&&line[i+1]==='"'){cur+='"';i++;}else{q=!q;} continue; }
+      if (ch==='"'){if(q&&line[i+1]==='"'){cur+='"';i++;}else{q=!q;}continue;}
       if (ch===','&&!q){out.push(cur.trim());cur="";continue;}
       cur+=ch;
     }
     out.push(cur.trim()); return out;
   }
-  const headers = splitRow(lines[0]);
-  const rows = lines.slice(1).filter(l=>l.trim()).map(l=>{
+  const headers=splitRow(lines[0]);
+  const rows=lines.slice(1).filter(l=>l.trim()).map(l=>{
     const v=splitRow(l);
     return Object.fromEntries(headers.map((h,i)=>[h,v[i]!==undefined?v[i]:""]));
   });
-  return { headers, rows };
+  return {headers,rows};
 }
 
-function autoDetect(headers) {
+function findCol(headers, ...words) {
   const h = headers.map(x=>x.toLowerCase());
-  const find = (...words) => { const idx=h.findIndex(c=>words.some(w=>c.includes(w))); return idx>=0?headers[idx]:""; };
-  return { name:find("decedent full","decedent","deceased","full name"), addr:find("decedent address","address") };
+  const idx = h.findIndex(c => words.some(w => c.includes(w)));
+  return idx >= 0 ? headers[idx] : "";
 }
 
 function populateSelect(id, headers, selected, addBlank) {
   const el=document.getElementById(id); el.innerHTML="";
   if (addBlank){const o=document.createElement("option");o.value="";o.textContent="— not used —";el.appendChild(o);}
-  headers.forEach(h=>{const o=document.createElement("option");o.value=h;o.textContent=h;if(h===selected)o.selected=true;el.appendChild(o);});
+  headers.forEach(h=>{
+    const o=document.createElement("option");o.value=h;o.textContent=h;
+    if(h===selected) o.selected=true;
+    el.appendChild(o);
+  });
+}
+
+function buildPreview(headers, rows) {
+  const cols = headers.slice(0, 8); // show first 8 columns
+  const sample = rows.slice(0, 3);
+  let html = '<table class="preview-table"><thead><tr>';
+  cols.forEach(h => { html += `<th>${h}</th>`; });
+  html += '</tr></thead><tbody>';
+  sample.forEach(r => {
+    html += '<tr>';
+    cols.forEach(h => { html += `<td>${(r[h]||"").slice(0,30)}</td>`; });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  return html;
 }
 
 function loadFile(file) {
-  if (!file||!file.name.endsWith(".csv")) return;
-  const reader=new FileReader();
-  reader.onload=e=>{
-    csvData=parseCSV(e.target.result);
-    document.getElementById("fileName").textContent="📄 "+file.name;
-    document.getElementById("recordCount").textContent=csvData.rows.length.toLocaleString()+" records loaded";
+  if (!file || !file.name.endsWith(".csv")) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    csvData = parseCSV(e.target.result);
+    document.getElementById("fileName").textContent = "📄 " + file.name;
+    document.getElementById("recordCount").textContent = csvData.rows.length.toLocaleString() + " records loaded";
     document.getElementById("dropEmpty").classList.add("hidden");
     document.getElementById("dropLoaded").classList.remove("hidden");
-    const d=autoDetect(csvData.headers);
-    populateSelect("colName",csvData.headers,d.name,false);
-    populateSelect("colAddr",csvData.headers,d.addr,true);
-    document.getElementById("detectedInfo").innerHTML=
-      `Auto-detected &nbsp;→&nbsp; <strong style="color:#e6edf3">Name:</strong> ${d.name||"?"} &nbsp;|&nbsp; `+
-      `<strong style="color:#e6edf3">Address:</strong> ${d.addr||"(display only)"}`;
+
+    const h = csvData.headers;
+
+    // Auto-detect columns — suggest only, user confirms
+    const guessDecFirst = findCol(h, "decedent first","first name","firstname","dec first");
+    const guessDecLast  = findCol(h, "decedent last","last name","lastname","dec last","surname");
+    const guessAddr     = findCol(h, "decedent address","property address","address");
+    const guessCounty   = findCol(h, "county","jurisdiction");
+
+    populateSelect("colDecFirst", h, guessDecFirst, false);
+    populateSelect("colDecLast",  h, guessDecLast,  false);
+    populateSelect("colAddr",     h, guessAddr,     true);
+    populateSelect("colCounty",   h, guessCounty,   true);
+
+    document.getElementById("detectedInfo").innerHTML =
+      `Auto-detected suggestions &nbsp;→&nbsp; ` +
+      `<strong style="color:#e6edf3">Dec First:</strong> ${guessDecFirst||"?"} &nbsp;|&nbsp; ` +
+      `<strong style="color:#e6edf3">Dec Last:</strong> ${guessDecLast||"?"} &nbsp;|&nbsp; ` +
+      `<strong style="color:#e6edf3">Address:</strong> ${guessAddr||"—"} &nbsp;|&nbsp; ` +
+      `<strong style="color:#e6edf3">County:</strong> ${guessCounty||"—"}<br/>` +
+      `<span style="color:#6e7681">Verify each column below before running.</span>`;
+
+    document.getElementById("previewWrap").innerHTML = buildPreview(csvData.headers, csvData.rows);
+
     document.getElementById("mappingCard").classList.remove("hidden");
     document.getElementById("runCard").classList.remove("hidden");
     document.getElementById("resultsCard").classList.add("hidden");
-    document.getElementById("logBox").innerHTML="";
+    document.getElementById("logBox").innerHTML = "";
     document.getElementById("logBox").classList.add("hidden");
+
+    // Reset results
+    confirmedRows=[]; possibleRows=[]; noMatchRows=[];
   };
   reader.readAsText(file);
 }
@@ -430,20 +485,28 @@ function addLog(msg) {
   box.classList.remove("hidden");
   const line=document.createElement("div");line.textContent=msg;
   box.appendChild(line);
-  if (box.children.length>400) box.removeChild(box.firstChild);
+  if(box.children.length>400) box.removeChild(box.firstChild);
   box.scrollTop=box.scrollHeight;
 }
 
 // ---------------------------------------------------------------------------
-// Run
+// Run — only fires on explicit button click, never automatically
 // ---------------------------------------------------------------------------
-document.getElementById("btnRun").addEventListener("click",async()=>{
+document.getElementById("btnRun").addEventListener("click", async () => {
   if (!csvData) return;
-  const nameCol=document.getElementById("colName").value;
-  const addrCol=document.getElementById("colAddr").value;
-  if (!nameCol){alert("Please select the Decedent Name column.");return;}
+
+  const decFirstCol = document.getElementById("colDecFirst").value;
+  const decLastCol  = document.getElementById("colDecLast").value;
+  const addrCol     = document.getElementById("colAddr").value;
+  const countyCol   = document.getElementById("colCounty").value;
+
+  if (!decFirstCol || !decLastCol) {
+    alert("Please select both First Name and Last Name columns before running.");
+    return;
+  }
 
   aborted=false; confirmedRows=[]; possibleRows=[]; noMatchRows=[];
+
   const btnRun=document.getElementById("btnRun");
   btnRun.disabled=true; btnRun.textContent="Running…";
   document.getElementById("btnStop").classList.remove("hidden");
@@ -458,60 +521,66 @@ document.getElementById("btnRun").addEventListener("click",async()=>{
   for (let i=0;i<total;i++) {
     if (aborted){addLog("⚠ Stopped at row "+(i+1));break;}
 
-    const row=csvData.rows[i];
-    const name=(row[nameCol]||"").trim();
+    const row      = csvData.rows[i];
+    const decFirst = (row[decFirstCol]||"").trim();
+    const decLast  = (row[decLastCol] ||"").trim();
 
-    let matchStatus="none", matchReason="", sdatOwner="", sdatAddr="";
+    let matchStatus="none", matchReason="", sdatFirst="", sdatLast="", sdatAddr="";
 
-    if (!name) {
-      matchReason="Empty name";
+    if (!decLast) {
+      matchReason="No last name";
     } else {
-      const {records,error}=await lookupByName(name);
+      const {records,error} = await lookupByLastName(decLast);
 
-      if (error&&!records) {
+      if (error && !records) {
         matchReason="Lookup error: "+error;
-        addLog(`Row ${i+1}: "${name}" — ${matchReason}`);
+        addLog(`Row ${i+1}: ${decFirst} ${decLast} — ${matchReason}`);
       } else if (records) {
-        let bestStatus="none", bestReason="", bestOwner="", bestAddr="";
+        let bestStatus="none", bestReason="", bestFirst="", bestLast="", bestAddr="";
 
         for (const rec of records) {
-          const o1=(rec.ownname1||"").trim(), o2=(rec.ownname2||"").trim();
+          const o1=(rec.ownname1||"").trim();
+          const o2=(rec.ownname2||"").trim();
           for (const candidate of [o1,o2].filter(Boolean)) {
-            const {status,reason}=classifyMatch(name,candidate);
+            const {status,reason}=classifyMatch(decFirst, decLast, candidate);
             if (status==="confirmed") {
+              const parsed=parseSDATName(candidate);
               bestStatus="confirmed"; bestReason=reason;
-              bestOwner=[o1,o2].filter(Boolean).join(" / ");
+              bestFirst=parsed.first; bestLast=parsed.last;
               bestAddr=[rec.premsnum,rec.premsnam,rec.premcity,rec.premzip].filter(Boolean).join(" ");
               break;
-            } else if (status==="possible"&&bestStatus!=="confirmed") {
+            } else if (status==="possible" && bestStatus!=="confirmed") {
+              const parsed=parseSDATName(candidate);
               bestStatus="possible"; bestReason=reason;
-              bestOwner=[o1,o2].filter(Boolean).join(" / ");
+              bestFirst=parsed.first; bestLast=parsed.last;
               bestAddr=[rec.premsnum,rec.premsnam,rec.premcity,rec.premzip].filter(Boolean).join(" ");
             }
           }
           if (bestStatus==="confirmed") break;
         }
 
-        matchStatus=bestStatus; matchReason=bestReason||`${records.length} record(s) found, no name match`;
-        sdatOwner=bestOwner; sdatAddr=bestAddr;
+        matchStatus=bestStatus;
+        matchReason=bestReason||`${records.length} record(s) found, no name match`;
+        sdatFirst=bestFirst; sdatLast=bestLast; sdatAddr=bestAddr;
 
         if (matchStatus==="none") {
           const sample=records.slice(0,2).map(r=>r.ownname1||"?").join(", ");
-          addLog(`Row ${i+1}: ❌ "${name}" — no match (SDAT sample: ${sample})`);
+          addLog(`Row ${i+1}: ❌ ${decFirst} ${decLast} — no match (SDAT: ${sample})`);
         } else if (matchStatus==="possible") {
-          addLog(`Row ${i+1}: ⚠️ "${name}" — possible (${matchReason})`);
+          addLog(`Row ${i+1}: ⚠️ ${decFirst} ${decLast} — possible (${matchReason})`);
         }
       } else {
-        matchReason="No SDAT records for this last name";
-        addLog(`Row ${i+1}: ❌ "${name}" — ${matchReason}`);
+        matchReason="No SDAT records for last name "+decLast;
+        addLog(`Row ${i+1}: ❌ ${decFirst} ${decLast} — ${matchReason}`);
       }
     }
 
     const outRow=Object.assign({},row);
-    outRow["_Match_Status"]=matchStatus==="confirmed"?"✅ CONFIRMED":matchStatus==="possible"?"⚠️ POSSIBLE":"❌ NO MATCH";
-    outRow["_Match_Reason"]=matchReason;
-    outRow["_SDAT_Owner"]=sdatOwner;
-    outRow["_SDAT_Address"]=sdatAddr;
+    outRow["_Match_Status"] = matchStatus==="confirmed"?"✅ CONFIRMED":matchStatus==="possible"?"⚠️ POSSIBLE":"❌ NO MATCH";
+    outRow["_Match_Reason"] = matchReason;
+    outRow["_SDAT_First"]   = sdatFirst;
+    outRow["_SDAT_Last"]    = sdatLast;
+    outRow["_SDAT_Address"] = sdatAddr;
 
     if (matchStatus==="confirmed")     confirmedRows.push(outRow);
     else if (matchStatus==="possible") possibleRows.push(outRow);
@@ -542,20 +611,20 @@ document.getElementById("btnRun").addEventListener("click",async()=>{
 document.getElementById("btnStop").addEventListener("click",()=>{aborted=true;});
 
 // ---------------------------------------------------------------------------
-// Download 3-tab XLSX
+// Download 3-tab XLSX — separate first/last name columns throughout
 // ---------------------------------------------------------------------------
 document.getElementById("btnDownload").addEventListener("click",()=>{
   const origHeaders=csvData.headers;
-  const extraCols=["_Match_Status","_Match_Reason","_SDAT_Owner","_SDAT_Address"];
+  const extraCols=["_Match_Status","_Match_Reason","_SDAT_First","_SDAT_Last","_SDAT_Address"];
   const outHeaders=[...origHeaders,...extraCols];
 
-  function toSheet(rows) {
+  function toSheet(rows){
     return XLSX.utils.aoa_to_sheet([outHeaders,...rows.map(r=>outHeaders.map(h=>r[h]||""))]);
   }
-  function styleHeader(ws,n,bgHex,fgHex) {
-    for (let c=0;c<n;c++) {
+  function styleHeader(ws,n,bgHex,fgHex){
+    for(let c=0;c<n;c++){
       const cell=XLSX.utils.encode_cell({r:0,c});
-      if (!ws[cell]) continue;
+      if(!ws[cell])continue;
       ws[cell].s={font:{bold:true,color:{rgb:fgHex}},fill:{fgColor:{rgb:bgHex}},alignment:{horizontal:"center"}};
     }
   }

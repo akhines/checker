@@ -4,84 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>MD Homeowner Verification</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js">
-// ---------------------------------------------------------------------------
-// DEBUG — shows raw SDAT API response + match logic for first 5 rows
-// ---------------------------------------------------------------------------
-document.getElementById("btnDebug").addEventListener("click", async () => {
-  if (!csvData) { alert("Load a CSV first."); return; }
-
-  const decFirstCol = document.getElementById("colDecFirst").value;
-  const decLastCol  = document.getElementById("colDecLast").value;
-  if (!decFirstCol || !decLastCol) { alert("Select First Name and Last Name columns first."); return; }
-
-  const panel = document.getElementById("debugPanel");
-  panel.classList.remove("hidden");
-  panel.textContent = "Running debug on first 5 rows...\n\n";
-
-  const sample = csvData.rows.slice(0, 5);
-
-  for (let i = 0; i < sample.length; i++) {
-    const row      = sample[i];
-    const decFirst = (row[decFirstCol]||"").trim();
-    const decLast  = (row[decLastCol] ||"").trim();
-    const cleaned  = cleanLastName(decLast);
-
-    panel.textContent += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
-    panel.textContent += `ROW ${i+1}: First="${decFirst}"  Last="${decLast}"\n`;
-    panel.textContent += `Searching SDAT for last name: "${cleaned}"\n`;
-
-    if (!cleaned || cleaned.length < 2) {
-      panel.textContent += "⚠ Last name too short or empty after cleaning — skipped\n\n";
-      continue;
-    }
-
-    const where = `upper(ownname1) like '%${cleaned}%' OR upper(ownname2) like '%${cleaned}%'`;
-    const url   = ENDPOINT + "?$limit=20&$where=" + encodeURIComponent(where);
-    panel.textContent += `URL: ${url}\n\n`;
-
-    try {
-      const r = await fetch(url);
-      const d = await r.json();
-
-      if (!d.length) {
-        panel.textContent += `SDAT RESPONSE: 0 records returned\n`;
-        panel.textContent += `→ Result: NO MATCH (no records for "${cleaned}")\n\n`;
-        continue;
-      }
-
-      panel.textContent += `SDAT RESPONSE: ${d.length} record(s) returned\n\n`;
-
-      d.forEach((rec, idx) => {
-        const o1 = (rec.ownname1||"").trim();
-        const o2 = (rec.ownname2||"").trim();
-        const addr = [rec.premsnum,rec.premsnam,rec.premcity,rec.premzip].filter(Boolean).join(" ");
-
-        panel.textContent += `  Record ${idx+1}:\n`;
-        panel.textContent += `    ownname1: "${o1}"\n`;
-        panel.textContent += `    ownname2: "${o2}"\n`;
-        panel.textContent += `    address:  "${addr}"\n`;
-
-        for (const candidate of [o1,o2].filter(Boolean)) {
-          const {status,reason} = classifyMatch(decFirst, decLast, candidate);
-          const icon = status==="confirmed"?"✅":status==="possible"?"⚠️":"❌";
-          panel.textContent += `    ${icon} vs "${candidate}": ${status.toUpperCase()} — ${reason}\n`;
-        }
-        panel.textContent += "\n";
-      });
-
-    } catch(e) {
-      panel.textContent += `ERROR fetching SDAT: ${e.message}\n\n`;
-    }
-
-    await new Promise(r => setTimeout(r, 300));
-  }
-
-  panel.textContent += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nDebug complete. Copy this output and share it.\n";
-  panel.scrollTop = panel.scrollHeight;
-});
-
-</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: #0d1117; color: #e6edf3; font-family: Georgia, serif; min-height: 100vh; padding: 2rem 1rem; }
@@ -104,24 +27,23 @@ document.getElementById("btnDebug").addEventListener("click", async () => {
   select:focus { border-color: #58a6ff; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
   .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; }
-  .btn-run { background: #238636; color: #fff; border: none; border-radius: 6px; padding: 0.6rem 1.4rem; font-family: monospace; font-size: 0.85rem; font-weight: 700; cursor: pointer; transition: background 0.15s; }
+  .btn-run  { background: #238636; color: #fff; border: none; border-radius: 6px; padding: 0.6rem 1.4rem; font-family: monospace; font-size: 0.85rem; font-weight: 700; cursor: pointer; transition: background 0.15s; }
   .btn-run:hover:not(:disabled) { background: #2ea043; }
   .btn-run:disabled { background: #1a3d22; color: #4d7a55; cursor: not-allowed; }
-  .btn-stop { background: #da3633; color: #fff; border: none; border-radius: 6px; padding: 0.45rem 0.9rem; font-family: monospace; font-size: 0.78rem; cursor: pointer; }
-  .btn-dl { background: #1f6feb; color: #fff; border: none; border-radius: 6px; padding: 0.6rem 1.4rem; font-family: monospace; font-size: 0.85rem; font-weight: 700; cursor: pointer; }
+  .btn-debug { background: #6e40c9; color: #fff; border: none; border-radius: 6px; padding: 0.6rem 1.2rem; font-family: monospace; font-size: 0.85rem; font-weight: 700; cursor: pointer; }
+  .btn-stop  { background: #da3633; color: #fff; border: none; border-radius: 6px; padding: 0.45rem 0.9rem; font-family: monospace; font-size: 0.78rem; cursor: pointer; }
+  .btn-dl   { background: #1f6feb; color: #fff; border: none; border-radius: 6px; padding: 0.6rem 1.4rem; font-family: monospace; font-size: 0.85rem; font-weight: 700; cursor: pointer; }
   .btn-dl:hover { background: #388bfd; }
-  .btn-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+  .btn-row  { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
   .prog-wrap { margin-top: 0.75rem; background: #21262d; border-radius: 3px; height: 5px; overflow: hidden; }
-  .prog-fill { height: 100%; background: linear-gradient(90deg, #238636, #2ea043); border-radius: 3px; transition: width 0.3s; }
+  .prog-fill { height: 100%; background: linear-gradient(90deg,#238636,#2ea043); border-radius: 3px; transition: width 0.3s; }
   .prog-text { font-family: monospace; font-size: 0.78rem; color: #8b949e; }
   .log { background: #0d1117; border: 1px solid #21262d; border-radius: 4px; padding: 0.6rem 0.75rem; max-height: 150px; overflow-y: auto; font-family: monospace; font-size: 0.72rem; color: #8b949e; margin-top: 0.75rem; }
-  .stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.6rem; margin-bottom: 1.25rem; }
+  .debug-panel { background: #0d1117; border: 1px solid #6e40c9; border-radius: 4px; padding: 0.75rem; font-family: monospace; font-size: 0.71rem; color: #c9d1d9; max-height: 500px; overflow-y: auto; white-space: pre-wrap; line-height: 1.6; margin-top: 1rem; }
+  .stats { display: grid; grid-template-columns: repeat(5,1fr); gap: 0.6rem; margin-bottom: 1.25rem; }
   .stat-label { font-family: monospace; font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.06em; color: #8b949e; margin-bottom: 0.2rem; }
   .stat-value { font-size: 1.5rem; font-weight: 700; }
-  .green  { color: #3fb950; }
-  .yellow { color: #e3b341; }
-  .orange { color: #f0883e; }
-  .blue   { color: #58a6ff; }
+  .green  { color: #3fb950; } .yellow { color: #e3b341; } .orange { color: #f0883e; } .blue { color: #58a6ff; }
   .code-tag { background: #21262d; color: #8b949e; border-radius: 3px; padding: 0.1rem 0.4rem; font-family: monospace; font-size: 0.72rem; }
   .info-box { background: #1c2128; border: 1px solid #30363d; border-radius: 4px; padding: 0.65rem 0.85rem; font-family: monospace; font-size: 0.75rem; color: #8b949e; margin-bottom: 1rem; line-height: 1.6; }
   .legend-box { background: #1c2128; border: 1px solid #30363d; border-radius: 4px; padding: 0.65rem 0.85rem; font-family: monospace; font-size: 0.73rem; color: #8b949e; margin-bottom: 1rem; line-height: 2; }
@@ -130,11 +52,11 @@ document.getElementById("btnDebug").addEventListener("click", async () => {
   .tab-pill .swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
   .section-label { font-family: monospace; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; color: #58a6ff; margin-bottom: 0.6rem; margin-top: 0.25rem; }
   .divider { border: none; border-top: 1px solid #21262d; margin: 1rem 0; }
-  .footer { text-align: center; font-family: monospace; font-size: 0.7rem; color: #4d7a55; margin-top: 2rem; }
-  .hidden { display: none; }
   .preview-table { width: 100%; font-family: monospace; font-size: 0.7rem; border-collapse: collapse; margin-top: 0.5rem; }
   .preview-table th { background: #21262d; color: #8b949e; padding: 0.3rem 0.5rem; text-align: left; font-weight: normal; }
   .preview-table td { padding: 0.3rem 0.5rem; border-top: 1px solid #21262d; color: #58a6ff; }
+  .footer { text-align: center; font-family: monospace; font-size: 0.7rem; color: #4d7a55; margin-top: 2rem; }
+  .hidden { display: none; }
 </style>
 </head>
 <body>
@@ -142,9 +64,9 @@ document.getElementById("btnDebug").addEventListener("click", async () => {
 
   <div class="eyebrow"><span class="dot"></span>Maryland SDAT · Public Records</div>
   <h1>Homeowner Verification</h1>
-  <p class="subtitle">Three-tier matching — Confirmed · Possible · No Match</p>
+  <p class="subtitle">Address-based SDAT lookup · Three-tier name match</p>
 
-  <!-- Step 1: Upload -->
+  <!-- Step 1 -->
   <div class="card">
     <div class="card-title">① Upload CSV</div>
     <div class="dropzone" id="dropzone">
@@ -160,7 +82,7 @@ document.getElementById("btnDebug").addEventListener("click", async () => {
     </div>
   </div>
 
-  <!-- Step 2: Column mapping -->
+  <!-- Step 2 -->
   <div class="card hidden" id="mappingCard">
     <div class="card-title">② Map Columns</div>
     <div class="info-box" id="detectedInfo"></div>
@@ -170,27 +92,30 @@ document.getElementById("btnDebug").addEventListener("click", async () => {
       <div class="field">
         <label>First Name Column *</label>
         <select id="colDecFirst"></select>
-        <div class="hint">e.g. "Decedent First Name" or split from full name</div>
       </div>
       <div class="field">
         <label>Last Name Column *</label>
         <select id="colDecLast"></select>
-        <div class="hint">e.g. "Decedent Last Name"</div>
       </div>
     </div>
 
     <hr class="divider"/>
-    <div class="section-label">Address (display only — search is by name statewide)</div>
-    <div class="grid2">
+    <div class="section-label">Property Address (used for SDAT lookup)</div>
+    <div class="grid3">
       <div class="field">
-        <label>Address Column</label>
-        <select id="colAddr"></select>
-        <div class="hint">Shown in output, not used for SDAT search</div>
+        <label>Street Address *</label>
+        <select id="colStreet"></select>
+        <div class="hint">e.g. "11 BEAVER POND CIR"</div>
       </div>
       <div class="field">
-        <label>County Column</label>
+        <label>ZIP Code *</label>
+        <select id="colZip"></select>
+        <div class="hint">5-digit zip</div>
+      </div>
+      <div class="field">
+        <label>Property County *</label>
         <select id="colCounty"></select>
-        <div class="hint">Shown in output</div>
+        <div class="hint">Used to build SDAT query</div>
       </div>
     </div>
 
@@ -199,24 +124,24 @@ document.getElementById("btnDebug").addEventListener("click", async () => {
     <div id="previewWrap" style="overflow-x:auto;"></div>
   </div>
 
-  <!-- Step 3: Run -->
+  <!-- Step 3 -->
   <div class="card hidden" id="runCard">
     <div class="card-title">③ Verify Against SDAT</div>
     <div class="legend-box">
-      <span style="color:#3fb950">✅ CONFIRMED</span> — First &amp; last name both match SDAT owner (legal names only)<br/>
-      <span style="color:#e3b341">⚠️ POSSIBLE</span> — Last name matches, first is a nickname or initial — needs human review<br/>
-      <span style="color:#f0883e">❌ NO MATCH</span> — No valid name match found in SDAT
+      <span style="color:#3fb950">✅ CONFIRMED</span> — Address found in SDAT, first &amp; last name both match owner<br/>
+      <span style="color:#e3b341">⚠️ POSSIBLE</span> — Address found, last name matches, first is nickname or initial<br/>
+      <span style="color:#f0883e">❌ NO MATCH</span> — Address not found in SDAT, or owner name does not match
     </div>
     <div class="btn-row">
-      <button class="btn-run" id="btnRun">▶&nbsp; Run Verification</button>
-      <button class="btn-run" id="btnDebug" style="background:#6e40c9;margin-left:0">🔍&nbsp; Debug First 5</button>
+      <button class="btn-run"   id="btnRun">▶&nbsp; Run Verification</button>
+      <button class="btn-debug" id="btnDebug">🔍&nbsp; Debug First 5</button>
       <button class="btn-stop hidden" id="btnStop">■&nbsp; Stop</button>
       <span class="prog-text hidden" id="progText"></span>
     </div>
     <div class="prog-wrap hidden" id="progWrap">
       <div class="prog-fill" id="progFill" style="width:0%"></div>
     </div>
-    <div id="debugPanel" class="hidden" style="margin-top:1rem;background:#0d1117;border:1px solid #6e40c9;border-radius:4px;padding:0.75rem;font-family:monospace;font-size:0.71rem;color:#c9d1d9;max-height:500px;overflow-y:auto;white-space:pre-wrap;line-height:1.6;"></div>
+    <div id="debugPanel" class="debug-panel hidden"></div>
     <div class="log hidden" id="logBox"></div>
   </div>
 
@@ -224,11 +149,11 @@ document.getElementById("btnDebug").addEventListener("click", async () => {
   <div class="card-success hidden" id="resultsCard">
     <div class="card-title-green">✓ Verification Complete</div>
     <div class="stats">
-      <div><div class="stat-label">Checked</div><div class="stat-value blue"   id="statTotal">0</div></div>
+      <div><div class="stat-label">Checked</div>  <div class="stat-value blue"   id="statTotal">0</div></div>
       <div><div class="stat-label">Confirmed</div><div class="stat-value green"  id="statConfirmed">0</div></div>
-      <div><div class="stat-label">Possible</div><div class="stat-value yellow" id="statPossible">0</div></div>
-      <div><div class="stat-label">No Match</div><div class="stat-value orange" id="statNone">0</div></div>
-      <div><div class="stat-label">Hit Rate</div><div class="stat-value"        id="statRate">0%</div></div>
+      <div><div class="stat-label">Possible</div> <div class="stat-value yellow" id="statPossible">0</div></div>
+      <div><div class="stat-label">No Match</div> <div class="stat-value orange" id="statNone">0</div></div>
+      <div><div class="stat-label">Hit Rate</div> <div class="stat-value"        id="statRate">0%</div></div>
     </div>
     <div class="tab-legend">
       <div class="tab-pill"><span class="swatch" style="background:#238636"></span>Tab 1: Confirmed</div>
@@ -240,13 +165,13 @@ document.getElementById("btnDebug").addEventListener("click", async () => {
       All tabs include original columns +
       <span class="code-tag">_Match_Status</span>
       <span class="code-tag">_Match_Reason</span>
-      <span class="code-tag">_SDAT_First</span>
-      <span class="code-tag">_SDAT_Last</span>
+      <span class="code-tag">_SDAT_Owner_First</span>
+      <span class="code-tag">_SDAT_Owner_Last</span>
       <span class="code-tag">_SDAT_Address</span>
     </div>
   </div>
 
-  <div class="footer">Maryland Open Data · SDAT Real Property (x8a5-h2sy) · Searches statewide by legal name</div>
+  <div class="footer">Maryland Open Data · SDAT Real Property (x8a5-h2sy) · Lookup by property address</div>
 </div>
 
 <script>
@@ -256,111 +181,153 @@ let confirmedRows = [], possibleRows = [], noMatchRows = [];
 let aborted = false;
 
 // ---------------------------------------------------------------------------
-// NICKNAME MAP
+// Maryland county codes for SDAT
 // ---------------------------------------------------------------------------
+const COUNTY_CODES = {
+  "ALLEGANY":       "ALLE",
+  "ANNE ARUNDEL":   "ANNE",
+  "BALTIMORE CITY": "BACI",
+  "BALTIMORE":      "BALT",
+  "CALVERT":        "CALV",
+  "CAROLINE":       "CARO",
+  "CARROLL":        "CARR",
+  "CECIL":          "CECI",
+  "CHARLES":        "CHAR",
+  "DORCHESTER":     "DORC",
+  "FREDERICK":      "FRED",
+  "GARRETT":        "GARR",
+  "HARFORD":        "HARF",
+  "HOWARD":         "HOWA",
+  "KENT":           "KENT",
+  "MONTGOMERY":     "MONT",
+  "PRINCE GEORGE'S":"PRIN",
+  "PRINCE GEORGES": "PRIN",
+  "QUEEN ANNE'S":   "QUEE",
+  "QUEEN ANNES":    "QUEE",
+  "SAINT MARY'S":   "SAIN",
+  "SAINT MARYS":    "SAIN",
+  "ST MARY'S":      "SAIN",
+  "ST MARYS":       "SAIN",
+  "SOMERSET":       "SOME",
+  "TALBOT":         "TALB",
+  "WASHINGTON":     "WASH",
+  "WICOMICO":       "WICO",
+  "WORCESTER":      "WORC",
+};
+
+function getCountyCode(raw) {
+  if (!raw) return null;
+  const up = raw.toUpperCase().trim();
+  // Direct lookup
+  if (COUNTY_CODES[up]) return COUNTY_CODES[up];
+  // Partial match
+  for (const [name, code] of Object.entries(COUNTY_CODES)) {
+    if (up.includes(name) || name.includes(up)) return code;
+  }
+  // Already a 4-letter code
+  if (up.length === 4) return up;
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Address parsing — split "11 BEAVER POND CIR" into number + street name
+// ---------------------------------------------------------------------------
+function parseStreet(raw) {
+  const s = (raw || "").trim().toUpperCase();
+  const m = s.match(/^(\d+\S*)\s+(.+)$/);
+  if (m) return { num: m[1], street: m[2].trim() };
+  return { num: "", street: s };
+}
+
+function normalizeStreetName(s) {
+  return s.toUpperCase()
+    .replace(/\bSTREET\b/g,"ST").replace(/\bAVENUE\b/g,"AVE").replace(/\bROAD\b/g,"RD")
+    .replace(/\bDRIVE\b/g,"DR").replace(/\bCOURT\b/g,"CT").replace(/\bLANE\b/g,"LN")
+    .replace(/\bBOULEVARD\b/g,"BLVD").replace(/\bCIRCLE\b/g,"CIR").replace(/\bPLACE\b/g,"PL")
+    .replace(/\bHIGHWAY\b/g,"HWY").replace(/\bPARKWAY\b/g,"PKWY").replace(/\bTERRACE\b/g,"TER")
+    .replace(/\bTRAIL\b/g,"TRL").replace(/\bSQUARE\b/g,"SQ").replace(/\bNORTH\b/g,"N")
+    .replace(/\bSOUTH\b/g,"S").replace(/\bEAST\b/g,"E").replace(/\bWEST\b/g,"W")
+    .replace(/\s+/g," ").trim();
+}
+
+// ---------------------------------------------------------------------------
+// SDAT address-based lookup
+// ---------------------------------------------------------------------------
+async function lookupByAddress(streetRaw, zipRaw, countyRaw, debug) {
+  const countyCode = getCountyCode(countyRaw);
+  if (!countyCode) {
+    if (debug) debug("  ⚠ Could not resolve county code for: " + countyRaw);
+    return { records: null, error: "Unknown county: " + countyRaw };
+  }
+
+  const { num, street } = parseStreet(streetRaw);
+  const streetNorm = normalizeStreetName(street);
+  const zip = (zipRaw || "").trim().replace(/-\d{4}$/, "").trim();
+
+  // Build query — search by street name + zip in the correct county
+  // premsnam = street name, premsnum = street number, premzip = zip, county code filters to right jurisdiction
+  let where = "upper(premsnam) like '%" + streetNorm + "%'";
+  if (num)  where += " AND premsnum='" + num + "'";
+  if (zip)  where += " AND premzip like '" + zip + "%'";
+  if (countyCode) where += " AND county='" + countyCode + "'";
+
+  const url = ENDPOINT + "?$limit=10&$where=" + encodeURIComponent(where);
+
+  if (debug) {
+    debug("  County: " + countyRaw + " → code: " + countyCode);
+    debug("  Street parsed: num=\"" + num + "\"  name=\"" + streetNorm + "\"  zip=\"" + zip + "\"");
+    debug("  URL: " + url);
+  }
+
+  try {
+    const r = await fetch(url);
+    if (!r.ok) return { records: null, error: "API error " + r.status };
+    const d = await r.json();
+    return { records: d.length ? d : null, error: null };
+  } catch(e) {
+    return { records: null, error: e.message };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Name matching
+// ---------------------------------------------------------------------------
+const STRIP_SUFFIXES = new Set(["JR","SR","II","III","IV","EST","TR","TRUSTEE","ETAL","ET","AL","THE","AND","OF","MR","MRS","MS","DR"]);
+
 const NICKNAMES = {
-  WILLIAM:["BILL","BILLY","WILL","WILLY","LIAM"],
-  ROBERT:["BOB","BOBBY","ROB","ROBBIE"],
-  JAMES:["JIM","JIMMY","JAMIE","JAY"],
-  JOHN:["JACK","JOHNNY","JON"],
-  MICHAEL:["MIKE","MIKEY","MICK","MICKEY"],
-  RICHARD:["RICK","RICKY","DICK","RICH"],
-  CHARLES:["CHUCK","CHARLIE","CHAS"],
-  THOMAS:["TOM","TOMMY","THOM"],
-  JOSEPH:["JOE","JOEY"],
-  DAVID:["DAVE","DAVY"],
-  EDWARD:["ED","EDDIE","NED","TED","TEDDY"],
-  HENRY:["HANK","HAL"],
-  HAROLD:["HAL","HARRY"],
-  DONALD:["DON","DONNIE"],
-  RONALD:["RON","RONNIE"],
-  KENNETH:["KEN","KENNY"],
-  STEVEN:["STEVE","STEVIE"],
-  STEPHEN:["STEVE","STEVIE"],
-  DANIEL:["DAN","DANNY"],
-  ANTHONY:["TONY"],
-  ANDREW:["ANDY","DREW"],
-  FRANK:["FRANCIS","FRANKIE"],
-  FRANCIS:["FRANK","FRAN"],
-  PATRICK:["PAT","PATTY"],
-  TIMOTHY:["TIM","TIMMY"],
-  RAYMOND:["RAY"],
-  LAWRENCE:["LARRY"],
-  LARRY:["LAWRENCE"],
-  WALTER:["WALT","WALLY"],
-  PETER:["PETE"],
-  EUGENE:["GENE"],
-  ARTHUR:["ART","ARTIE"],
-  ALBERT:["AL","BERT"],
-  SAMUEL:["SAM","SAMMY"],
-  FREDERICK:["FRED","FREDDY"],
-  FRED:["FREDERICK","FREDDY"],
-  GERALD:["JERRY","GERRY"],
-  JERRY:["GERALD","GERRY"],
-  LEONARD:["LEN","LENNY","LEO"],
-  LOUIS:["LOU","LOUIE","LEWIS"],
-  LEWIS:["LOU","LOUIE","LOUIS"],
-  NATHANIEL:["NAT","NATE"],
-  NICHOLAS:["NICK","NICKY"],
-  NORMAN:["NORM"],
-  RANDOLPH:["RANDY"],
-  RANDY:["RANDOLPH"],
-  RODNEY:["ROD"],
-  RUSSELL:["RUSS"],
-  STANLEY:["STAN"],
-  THEODORE:["TED","TEDDY","THEO"],
-  VICTOR:["VIC"],
-  VINCENT:["VIN","VINCE","VINNY"],
-  GEORGE:["GEORGIE"],
-  HOWARD:["HOWIE"],
-  DOUGLAS:["DOUG"],
-  DENNIS:["DENNY"],
-  CLIFFORD:["CLIFF"],
-  JEROME:["JERRY"],
-  HERMAN:["HERM"],
-  ERNEST:["ERNIE"],
-  EARL:["EARLE"],
+  WILLIAM:["BILL","BILLY","WILL","WILLY","LIAM"],ROBERT:["BOB","BOBBY","ROB","ROBBIE"],
+  JAMES:["JIM","JIMMY","JAMIE","JAY"],JOHN:["JACK","JOHNNY","JON"],
+  MICHAEL:["MIKE","MIKEY","MICK","MICKEY"],RICHARD:["RICK","RICKY","DICK","RICH"],
+  CHARLES:["CHUCK","CHARLIE","CHAS"],THOMAS:["TOM","TOMMY","THOM"],
+  JOSEPH:["JOE","JOEY"],DAVID:["DAVE","DAVY"],EDWARD:["ED","EDDIE","NED","TED","TEDDY"],
+  HENRY:["HANK","HAL"],HAROLD:["HAL","HARRY"],DONALD:["DON","DONNIE"],RONALD:["RON","RONNIE"],
+  KENNETH:["KEN","KENNY"],STEVEN:["STEVE","STEVIE"],STEPHEN:["STEVE","STEVIE"],
+  DANIEL:["DAN","DANNY"],ANTHONY:["TONY"],ANDREW:["ANDY","DREW"],
+  FRANK:["FRANCIS","FRANKIE"],FRANCIS:["FRANK","FRAN"],PATRICK:["PAT","PATTY"],
+  TIMOTHY:["TIM","TIMMY"],RAYMOND:["RAY"],LAWRENCE:["LARRY"],LARRY:["LAWRENCE"],
+  WALTER:["WALT","WALLY"],PETER:["PETE"],EUGENE:["GENE"],ARTHUR:["ART","ARTIE"],
+  ALBERT:["AL","BERT"],SAMUEL:["SAM","SAMMY"],FREDERICK:["FRED","FREDDY"],FRED:["FREDERICK","FREDDY"],
+  GERALD:["JERRY","GERRY"],JERRY:["GERALD","GERRY"],LEONARD:["LEN","LENNY","LEO"],
+  LOUIS:["LOU","LOUIE","LEWIS"],LEWIS:["LOU","LOUIE","LOUIS"],NATHANIEL:["NAT","NATE"],
+  NICHOLAS:["NICK","NICKY"],NORMAN:["NORM"],RANDOLPH:["RANDY"],RANDY:["RANDOLPH"],
+  RODNEY:["ROD"],RUSSELL:["RUSS"],STANLEY:["STAN"],THEODORE:["TED","TEDDY","THEO"],
+  VICTOR:["VIC"],VINCENT:["VIN","VINCE","VINNY"],GEORGE:["GEORGIE"],HOWARD:["HOWIE"],
+  DOUGLAS:["DOUG"],DENNIS:["DENNY"],CLIFFORD:["CLIFF"],JEROME:["JERRY"],ERNEST:["ERNIE"],
   ELIZABETH:["LIZ","LIZZIE","BETH","BETTY","BETTE","ELIZA","ELLIE","LIBBY","LISA","ELISE","ELSIE"],
-  BETTY:["ELIZABETH","BETTE"],
-  MARGARET:["MAGGIE","MEG","PEGGY","PEG","MARGE","MARGO","RITA"],
+  BETTY:["ELIZABETH","BETTE"],MARGARET:["MAGGIE","MEG","PEGGY","PEG","MARGE","MARGO","RITA"],
   MARY:["MARIE","MOLLY","MAE","MAY","MAMIE","POLLY"],
-  PATRICIA:["PAT","PATTY","PATTI","TRICIA","TRISH"],
-  BARBARA:["BARB","BARBIE","BABS"],
-  DOROTHY:["DOT","DOTTIE"],
-  HELEN:["NELL","NELLIE"],
-  VIRGINIA:["GINNY","GINGER"],
-  CATHERINE:["CATHY","KATHY","KATE","KATIE","KAY"],
-  KATHERINE:["KATHY","KATE","KATIE","KAY","CATHY"],
-  KATHLEEN:["KATHY","KATE","KATIE","KAY"],
-  CAROLYN:["CAROL","CARRIE","LYNN"],
-  CAROL:["CAROLE","CAROLYN","CARRIE"],
-  JUDITH:["JUDY"],
-  JUDY:["JUDITH"],
-  PAMELA:["PAM"],
-  SANDRA:["SANDY","SANDI"],
-  SUSAN:["SUE","SUSIE","SUZY"],
-  TERESA:["TERRY","TERI","TESS"],
-  THERESA:["TERRY","TERI","TESS"],
-  DEBORAH:["DEB","DEBBIE"],
-  DEBRA:["DEB","DEBBIE"],
-  CYNTHIA:["CINDY"],
-  CONSTANCE:["CONNIE"],
-  CONNIE:["CONSTANCE"],
-  BEVERLY:["BEV"],
-  FRANCES:["FRAN","FRANNIE"],
-  LILLIAN:["LILY","LIL"],
-  MILDRED:["MILLIE"],
-  ROSEMARY:["ROSIE","ROSE"],
-  EVELYN:["EVE","EVIE"],
-  JOSEPHINE:["JO","JOSIE"],
-  JOANNE:["JO","JOAN"],
-  ROBERTA:["BOBBIE"],
-  VIVIAN:["VIV"],
-  DOLORES:["DEE","LOLA"],
-  LAURA:["LAURIE","LORI"],
-  LORI:["LAURA","LAURIE"],
-  LORRAINE:["LORI"],
-  GERALDINE:["GERI","JERRY"],
+  PATRICIA:["PAT","PATTY","PATTI","TRICIA","TRISH"],BARBARA:["BARB","BARBIE","BABS"],
+  DOROTHY:["DOT","DOTTIE"],HELEN:["NELL","NELLIE"],VIRGINIA:["GINNY","GINGER"],
+  CATHERINE:["CATHY","KATHY","KATE","KATIE","KAY"],KATHERINE:["KATHY","KATE","KATIE","KAY","CATHY"],
+  KATHLEEN:["KATHY","KATE","KATIE","KAY"],CAROLYN:["CAROL","CARRIE","LYNN"],
+  CAROL:["CAROLE","CAROLYN","CARRIE"],JUDITH:["JUDY"],JUDY:["JUDITH"],PAMELA:["PAM"],
+  SANDRA:["SANDY","SANDI"],SUSAN:["SUE","SUSIE","SUZY"],TERESA:["TERRY","TERI","TESS"],
+  THERESA:["TERRY","TERI","TESS"],DEBORAH:["DEB","DEBBIE"],DEBRA:["DEB","DEBBIE"],
+  CYNTHIA:["CINDY"],CONSTANCE:["CONNIE"],CONNIE:["CONSTANCE"],BEVERLY:["BEV"],
+  FRANCES:["FRAN","FRANNIE"],LILLIAN:["LILY","LIL"],MILDRED:["MILLIE"],
+  ROSEMARY:["ROSIE","ROSE"],EVELYN:["EVE","EVIE"],JOSEPHINE:["JO","JOSIE"],
+  JOANNE:["JO","JOAN"],ROBERTA:["BOBBIE"],VIVIAN:["VIV"],DOLORES:["DEE","LOLA"],
+  LAURA:["LAURIE","LORI"],LORI:["LAURA","LAURIE"],LORRAINE:["LORI"],GERALDINE:["GERI","JERRY"],
 };
 
 const NICKNAME_REVERSE = {};
@@ -371,131 +338,151 @@ for (const [legal, nicks] of Object.entries(NICKNAMES)) {
   }
 }
 
-const STRIP_SUFFIXES = new Set(["JR","SR","II","III","IV","EST","TR","TRUSTEE","ETAL","ET","AL","THE","AND","OF","MR","MRS","MS","DR"]);
-
-function normName(s) {
+function normStr(s) {
   return (s||"").toUpperCase().replace(/[^A-Z\s]/g," ").replace(/\s+/g," ").trim();
 }
 function tokenize(s) {
-  return normName(s).split(" ").filter(t => t.length > 0 && !STRIP_SUFFIXES.has(t));
+  return normStr(s).split(" ").filter(t => t.length > 0 && !STRIP_SUFFIXES.has(t));
+}
+function stripSuffixesFromName(raw) {
+  const t = normStr(raw).split(" ").filter(t => t.length > 0);
+  while (t.length > 1 && STRIP_SUFFIXES.has(t[t.length-1])) t.pop();
+  return t.join(" ");
 }
 
-// Parse SDAT owner string into { first, last }
-// SDAT format is typically "LASTNAME FIRSTNAME" or "LASTNAME FIRSTNAME MIDDLE"
-function parseSDATName(sdatOwner) {
-  const tokens = tokenize(sdatOwner);
-  if (tokens.length === 0) return { first:"", last:"" };
-  if (tokens.length === 1) return { first:"", last:tokens[0] };
-  // First token is last name in SDAT format
-  return { last: tokens[0], first: tokens.slice(1).join(" ") };
-}
-
-// Classify match given separate first + last from CSV against a SDAT owner string.
-// SDAT stores names as "LASTNAME FIRSTNAME [MIDDLE]" so we must handle that format.
-// We also strip suffixes from the decedent last name before comparing (handles "KROL SR").
-function classifyMatch(decFirst, decLast, sdatOwner) {
-  const dFirst   = normName(decFirst);
-  const dLastRaw = normName(decLast);
-  // Strip any suffixes that leaked into the last name field (e.g. "KROL SR" -> "KROL")
-  const dLastTokens = dLastRaw.split(" ").filter(t => t && !STRIP_SUFFIXES.has(t));
-  const dLast = dLastTokens.join(" ");
-
-  const sNorm   = normName(sdatOwner);
+// Compare decedent first+last against a SDAT owner string
+// SDAT format: "LASTNAME FIRSTNAME [MIDDLE]"
+function classifyMatch(decFirst, decLast, sdatOwner, debugFn) {
+  const dFirst = normStr(decFirst);
+  const dLast  = stripSuffixesFromName(normStr(decLast));
   const sTokens = tokenize(sdatOwner);
+  const sNorm   = normStr(sdatOwner);
 
-  if (!dLast) return { status:"none", reason:"No last name provided" };
-  if (!sNorm)  return { status:"none", reason:"Empty SDAT owner" };
+  if (!dLast) return { status:"none", reason:"No last name" };
+  if (!sTokens.length) return { status:"none", reason:"Empty SDAT owner" };
 
-  // --- Last name check ---
-  // Use a word-boundary-aware check: the last name must appear as a distinct token
-  // in the SDAT string, not just as a substring (avoids DAVIS matching DAVIDSON)
-  const lastNameFound = sTokens.includes(dLast) ||
-    // Also allow substring for hyphenated/compound names longer than 4 chars
-    (dLast.length > 4 && sNorm.includes(dLast));
+  // Token-level last name check (avoids DAVIS matching DAVIDSON)
+  const lastFound = sTokens.includes(dLast) || (dLast.length > 4 && sNorm.includes(dLast));
+  if (!lastFound) return { status:"none", reason:"Last \""+dLast+"\" not in SDAT \""+sdatOwner+"\"" };
+  if (!dFirst)   return { status:"none", reason:"Last name found but no first name to check" };
 
-  if (!lastNameFound) {
-    return { status:"none", reason:`Last name "${dLast}" not in SDAT "${sdatOwner}"` };
+  // In SDAT format token[0] is the last name, everything after is first+middle
+  const sAfterLast = sTokens.slice(sTokens.indexOf(dLast)+1);
+  const sAfterNorm = sAfterLast.join(" ");
+
+  if (debugFn) debugFn("    dFirst=\""+dFirst+"\" dLast=\""+dLast+"\" sAfterLast="+JSON.stringify(sAfterLast));
+
+  // CONFIRMED: exact first name
+  if (dFirst.length > 1 && (sAfterLast.includes(dFirst) || sAfterNorm.includes(dFirst))) {
+    return { status:"confirmed", reason:"\""+dLast+"\" + \""+dFirst+"\" both matched" };
   }
 
-  if (!dFirst) {
-    return { status:"none", reason:"Last name found but no first name to verify" };
+  // POSSIBLE: initial only in SDAT
+  if (dFirst.length > 1 && sAfterLast.some(t => t.length===1 && t===dFirst[0])) {
+    return { status:"possible", reason:"Last matched; SDAT has initial \""+dFirst[0]+"\" only" };
   }
 
-  // --- First name check ---
-  // SDAT format: first token = last name, remaining tokens = first + middle
-  // So we check if dFirst appears anywhere after the first token in SDAT
-  const sFirstTokens = sTokens.slice(1); // everything after SDAT last name
-  const sFirstNorm   = sFirstTokens.join(" ");
-
-  // CONFIRMED: exact first name match (not a bare initial)
-  if (dFirst.length > 1 && (sFirstTokens.includes(dFirst) || sFirstNorm.includes(dFirst))) {
-    return { status:"confirmed", reason:`"${dLast}" + "${dFirst}" both matched` };
-  }
-
-  // POSSIBLE: SDAT has only an initial where we have a full first name
-  if (dFirst.length > 1 && sFirstTokens.includes(dFirst[0]) && sFirstTokens.some(t => t.length === 1)) {
-    return { status:"possible", reason:`Last name matched; SDAT has initial "${dFirst[0]}" only` };
-  }
-
-  // POSSIBLE: nickname match (decedent has legal name, SDAT has nickname or vice versa)
+  // POSSIBLE: nickname
   if (dFirst.length > 1) {
-    for (const nick of (NICKNAMES[dFirst] || [])) {
-      if (sFirstTokens.includes(nick) || sFirstNorm.includes(nick)) {
-        return { status:"possible", reason:`Last name matched; nickname "${nick}" found (legal: "${dFirst}")` };
-      }
+    for (const nick of (NICKNAMES[dFirst]||[])) {
+      if (sAfterLast.includes(nick)||sAfterNorm.includes(nick))
+        return { status:"possible", reason:"Last matched; nickname \""+nick+"\" (legal: \""+dFirst+"\")" };
     }
-    for (const legal of (NICKNAME_REVERSE[dFirst] || [])) {
-      if (sFirstTokens.includes(legal) || sFirstNorm.includes(legal)) {
-        return { status:"possible", reason:`Last name matched; "${dFirst}" may be nickname for "${legal}" in SDAT` };
-      }
+    for (const legal of (NICKNAME_REVERSE[dFirst]||[])) {
+      if (sAfterLast.includes(legal)||sAfterNorm.includes(legal))
+        return { status:"possible", reason:"Last matched; \""+dFirst+"\" may be nickname for \""+legal+"\"" };
     }
   }
 
-  return { status:"none", reason:`Last name "${dLast}" found but no first name or nickname match in SDAT "${sdatOwner}"` };
+  return { status:"none", reason:"Last \""+dLast+"\" found but no first name match in \""+sdatOwner+"\"" };
 }
 
-// Strip suffixes from a raw last name field before searching
-// e.g. "KROL SR" -> "KROL", "SMITH JR" -> "SMITH"
-function cleanLastName(raw) {
-  const tokens = normName(raw).split(" ").filter(t => t.length > 0);
-  // Remove any trailing suffix tokens
-  while (tokens.length > 1 && STRIP_SUFFIXES.has(tokens[tokens.length - 1])) {
-    tokens.pop();
-  }
-  return tokens.join(" ");
+// Parse SDAT owner name into separate first/last
+function parseSDATOwner(sdatOwner) {
+  const t = tokenize(sdatOwner);
+  if (!t.length) return { first:"", last:"" };
+  if (t.length===1) return { first:"", last:t[0] };
+  return { last:t[0], first:t.slice(1).join(" ") };
 }
 
-// SDAT lookup by last name statewide
-async function lookupByLastName(lastName) {
-  const ln = cleanLastName(lastName); // strips "SR", "JR", etc. from last name field
-  if (ln.length < 2) return { records:null, error:"Last name too short" };
-  const where = `upper(ownname1) like '%${ln}%' OR upper(ownname2) like '%${ln}%'`;
-  const url = ENDPOINT + "?$limit=20&$where=" + encodeURIComponent(where);
-  try {
-    const r = await fetch(url);
-    if (!r.ok) return { records:null, error:"API error " + r.status };
-    const d = await r.json();
-    return { records: d.length ? d : null, error:null };
-  } catch(e) {
-    return { records:null, error:e.message };
+// ---------------------------------------------------------------------------
+// Run a single record through SDAT and return match result
+// ---------------------------------------------------------------------------
+async function processRecord(decFirst, decLast, streetRaw, zipRaw, countyRaw, debugFn) {
+  const { records, error } = await lookupByAddress(streetRaw, zipRaw, countyRaw, debugFn);
+
+  if (error && !records) return { status:"none", reason:"Lookup error: "+error, sdatFirst:"", sdatLast:"", sdatAddr:"" };
+
+  if (!records) {
+    // Address not found — try relaxed search without street number
+    const { num, street } = parseStreet(streetRaw);
+    const streetNorm = normalizeStreetName(street);
+    const zip = (zipRaw||"").trim().replace(/-\d{4}$/,"");
+    const countyCode = getCountyCode(countyRaw);
+    const where = "upper(premsnam) like '%"+streetNorm+"%' AND premzip like '"+zip+"%'"+(countyCode?" AND county='"+countyCode+"'":"");
+    const url2 = ENDPOINT+"?$limit=10&$where="+encodeURIComponent(where);
+    if (debugFn) debugFn("  Address not found — retrying without street number\n  URL2: "+url2);
+    try {
+      const r2 = await fetch(url2);
+      const d2 = await r2.json();
+      if (!d2.length) return { status:"none", reason:"Address not found in SDAT", sdatFirst:"", sdatLast:"", sdatAddr:"" };
+      if (debugFn) debugFn("  Retry returned "+d2.length+" record(s)");
+      return matchFromRecords(d2, decFirst, decLast, debugFn);
+    } catch(e) {
+      return { status:"none", reason:"Retry error: "+e.message, sdatFirst:"", sdatLast:"", sdatAddr:"" };
+    }
   }
+
+  return matchFromRecords(records, decFirst, decLast, debugFn);
+}
+
+function matchFromRecords(records, decFirst, decLast, debugFn) {
+  let best = { status:"none", reason:"", sdatFirst:"", sdatLast:"", sdatAddr:"" };
+
+  for (const rec of records) {
+    const o1 = (rec.ownname1||"").trim();
+    const o2 = (rec.ownname2||"").trim();
+    const addr = [rec.premsnum,rec.premsnam,rec.premcity,rec.premzip].filter(Boolean).join(" ");
+    if (debugFn) debugFn("  ownname1=\""+o1+"\"  ownname2=\""+o2+"\"  addr=\""+addr+"\"");
+
+    for (const candidate of [o1,o2].filter(Boolean)) {
+      const r = classifyMatch(decFirst, decLast, candidate, debugFn);
+      const icon = r.status==="confirmed"?"✅":r.status==="possible"?"⚠️":"❌";
+      if (debugFn) debugFn("  "+icon+" vs \""+candidate+"\": "+r.status.toUpperCase()+" — "+r.reason);
+
+      if (r.status==="confirmed") {
+        const p = parseSDATOwner(candidate);
+        return { status:"confirmed", reason:r.reason, sdatFirst:p.first, sdatLast:p.last, sdatAddr:addr };
+      }
+      if (r.status==="possible" && best.status!=="confirmed") {
+        const p = parseSDATOwner(candidate);
+        best = { status:"possible", reason:r.reason, sdatFirst:p.first, sdatLast:p.last, sdatAddr:addr };
+      }
+    }
+  }
+
+  if (best.status==="none") {
+    const sample = records.slice(0,3).map(r=>r.ownname1||"?").join(", ");
+    best.reason = records.length+" record(s) found at address, name mismatch (SDAT: "+sample+")";
+  }
+  return best;
 }
 
 // ---------------------------------------------------------------------------
 // CSV parser
 // ---------------------------------------------------------------------------
 function parseCSV(text) {
-  const lines = text.trim().split(/\r?\n/);
-  if (lines.length < 2) return { headers:[], rows:[] };
+  const lines=text.trim().split(/\r?\n/);
+  if (lines.length<2) return {headers:[],rows:[]};
   function splitRow(line) {
-    const out=[]; let cur="",q=false;
-    for (let i=0;i<line.length;i++) {
+    const out=[];let cur="",q=false;
+    for(let i=0;i<line.length;i++){
       const ch=line[i];
-      if (ch==='"'){if(q&&line[i+1]==='"'){cur+='"';i++;}else{q=!q;}continue;}
-      if (ch===','&&!q){out.push(cur.trim());cur="";continue;}
+      if(ch==='"'){if(q&&line[i+1]==='"'){cur+='"';i++;}else{q=!q;}continue;}
+      if(ch===','&&!q){out.push(cur.trim());cur="";continue;}
       cur+=ch;
     }
-    out.push(cur.trim()); return out;
+    out.push(cur.trim());return out;
   }
   const headers=splitRow(lines[0]);
   const rows=lines.slice(1).filter(l=>l.trim()).map(l=>{
@@ -505,77 +492,66 @@ function parseCSV(text) {
   return {headers,rows};
 }
 
-function findCol(headers, ...words) {
-  const h = headers.map(x=>x.toLowerCase());
-  const idx = h.findIndex(c => words.some(w => c.includes(w)));
-  return idx >= 0 ? headers[idx] : "";
+function findCol(headers,...words) {
+  const h=headers.map(x=>x.toLowerCase());
+  const idx=h.findIndex(c=>words.some(w=>c.includes(w)));
+  return idx>=0?headers[idx]:"";
 }
 
-function populateSelect(id, headers, selected, addBlank) {
-  const el=document.getElementById(id); el.innerHTML="";
-  if (addBlank){const o=document.createElement("option");o.value="";o.textContent="— not used —";el.appendChild(o);}
-  headers.forEach(h=>{
-    const o=document.createElement("option");o.value=h;o.textContent=h;
-    if(h===selected) o.selected=true;
-    el.appendChild(o);
-  });
+function populateSelect(id,headers,selected,addBlank) {
+  const el=document.getElementById(id);el.innerHTML="";
+  if(addBlank){const o=document.createElement("option");o.value="";o.textContent="— not used —";el.appendChild(o);}
+  headers.forEach(h=>{const o=document.createElement("option");o.value=h;o.textContent=h;if(h===selected)o.selected=true;el.appendChild(o);});
 }
 
-function buildPreview(headers, rows) {
-  const cols = headers.slice(0, 8); // show first 8 columns
-  const sample = rows.slice(0, 3);
-  let html = '<table class="preview-table"><thead><tr>';
-  cols.forEach(h => { html += `<th>${h}</th>`; });
-  html += '</tr></thead><tbody>';
-  sample.forEach(r => {
-    html += '<tr>';
-    cols.forEach(h => { html += `<td>${(r[h]||"").slice(0,30)}</td>`; });
-    html += '</tr>';
-  });
-  html += '</tbody></table>';
-  return html;
+function buildPreview(headers,rows) {
+  const cols=headers.slice(0,8);const sample=rows.slice(0,3);
+  let html='<table class="preview-table"><thead><tr>';
+  cols.forEach(h=>{html+=`<th>${h}</th>`;});
+  html+='</tr></thead><tbody>';
+  sample.forEach(r=>{html+='<tr>';cols.forEach(h=>{html+=`<td>${(r[h]||"").slice(0,28)}</td>`;});html+='</tr>';});
+  html+='</tbody></table>';return html;
 }
 
 function loadFile(file) {
-  if (!file || !file.name.endsWith(".csv")) return;
-  const reader = new FileReader();
-  reader.onload = e => {
-    csvData = parseCSV(e.target.result);
-    document.getElementById("fileName").textContent = "📄 " + file.name;
-    document.getElementById("recordCount").textContent = csvData.rows.length.toLocaleString() + " records loaded";
+  if(!file||!file.name.endsWith(".csv")) return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    csvData=parseCSV(e.target.result);
+    document.getElementById("fileName").textContent="📄 "+file.name;
+    document.getElementById("recordCount").textContent=csvData.rows.length.toLocaleString()+" records loaded";
     document.getElementById("dropEmpty").classList.add("hidden");
     document.getElementById("dropLoaded").classList.remove("hidden");
 
-    const h = csvData.headers;
+    const h=csvData.headers;
+    const gFirst  = findCol(h,"decedent first","first name","firstname");
+    const gLast   = findCol(h,"decedent last","last name","lastname","surname");
+    const gStreet = findCol(h,"property address","street address","address");
+    const gZip    = findCol(h,"property zip","zip code","zip","postal");
+    const gCounty = findCol(h,"property county","county");
 
-    // Auto-detect columns — suggest only, user confirms
-    const guessDecFirst = findCol(h, "decedent first","first name","firstname","dec first");
-    const guessDecLast  = findCol(h, "decedent last","last name","lastname","dec last","surname");
-    const guessAddr     = findCol(h, "decedent address","property address","address");
-    const guessCounty   = findCol(h, "county","jurisdiction");
+    populateSelect("colDecFirst",h,gFirst,false);
+    populateSelect("colDecLast", h,gLast, false);
+    populateSelect("colStreet",  h,gStreet,false);
+    populateSelect("colZip",     h,gZip,  false);
+    populateSelect("colCounty",  h,gCounty,false);
 
-    populateSelect("colDecFirst", h, guessDecFirst, false);
-    populateSelect("colDecLast",  h, guessDecLast,  false);
-    populateSelect("colAddr",     h, guessAddr,     true);
-    populateSelect("colCounty",   h, guessCounty,   true);
+    document.getElementById("detectedInfo").innerHTML=
+      `Auto-detected → `+
+      `<strong style="color:#e6edf3">First:</strong> ${gFirst||"?"} &nbsp;`+
+      `<strong style="color:#e6edf3">Last:</strong> ${gLast||"?"} &nbsp;`+
+      `<strong style="color:#e6edf3">Address:</strong> ${gStreet||"?"} &nbsp;`+
+      `<strong style="color:#e6edf3">ZIP:</strong> ${gZip||"?"} &nbsp;`+
+      `<strong style="color:#e6edf3">County:</strong> ${gCounty||"?"}<br/>`+
+      `<span style="color:#6e7681">Verify each column before running.</span>`;
 
-    document.getElementById("detectedInfo").innerHTML =
-      `Auto-detected suggestions &nbsp;→&nbsp; ` +
-      `<strong style="color:#e6edf3">Dec First:</strong> ${guessDecFirst||"?"} &nbsp;|&nbsp; ` +
-      `<strong style="color:#e6edf3">Dec Last:</strong> ${guessDecLast||"?"} &nbsp;|&nbsp; ` +
-      `<strong style="color:#e6edf3">Address:</strong> ${guessAddr||"—"} &nbsp;|&nbsp; ` +
-      `<strong style="color:#e6edf3">County:</strong> ${guessCounty||"—"}<br/>` +
-      `<span style="color:#6e7681">Verify each column below before running.</span>`;
-
-    document.getElementById("previewWrap").innerHTML = buildPreview(csvData.headers, csvData.rows);
-
+    document.getElementById("previewWrap").innerHTML=buildPreview(h,csvData.rows);
     document.getElementById("mappingCard").classList.remove("hidden");
     document.getElementById("runCard").classList.remove("hidden");
     document.getElementById("resultsCard").classList.add("hidden");
-    document.getElementById("logBox").innerHTML = "";
+    document.getElementById("logBox").innerHTML="";
     document.getElementById("logBox").classList.add("hidden");
-
-    // Reset results
+    document.getElementById("debugPanel").classList.add("hidden");
     confirmedRows=[]; possibleRows=[]; noMatchRows=[];
   };
   reader.readAsText(file);
@@ -597,24 +573,28 @@ function addLog(msg) {
   box.scrollTop=box.scrollHeight;
 }
 
+function getColValues() {
+  return {
+    decFirstCol: document.getElementById("colDecFirst").value,
+    decLastCol:  document.getElementById("colDecLast").value,
+    streetCol:   document.getElementById("colStreet").value,
+    zipCol:      document.getElementById("colZip").value,
+    countyCol:   document.getElementById("colCounty").value,
+  };
+}
+
 // ---------------------------------------------------------------------------
-// Run — only fires on explicit button click, never automatically
+// Run
 // ---------------------------------------------------------------------------
 document.getElementById("btnRun").addEventListener("click", async () => {
   if (!csvData) return;
-
-  const decFirstCol = document.getElementById("colDecFirst").value;
-  const decLastCol  = document.getElementById("colDecLast").value;
-  const addrCol     = document.getElementById("colAddr").value;
-  const countyCol   = document.getElementById("colCounty").value;
-
-  if (!decFirstCol || !decLastCol) {
-    alert("Please select both First Name and Last Name columns before running.");
+  const { decFirstCol, decLastCol, streetCol, zipCol, countyCol } = getColValues();
+  if (!decFirstCol||!decLastCol||!streetCol||!zipCol||!countyCol) {
+    alert("Please map all required columns: First Name, Last Name, Street Address, ZIP, and County.");
     return;
   }
 
   aborted=false; confirmedRows=[]; possibleRows=[]; noMatchRows=[];
-
   const btnRun=document.getElementById("btnRun");
   btnRun.disabled=true; btnRun.textContent="Running…";
   document.getElementById("btnStop").classList.remove("hidden");
@@ -622,86 +602,46 @@ document.getElementById("btnRun").addEventListener("click", async () => {
   document.getElementById("progText").classList.remove("hidden");
   document.getElementById("logBox").innerHTML="";
   document.getElementById("logBox").classList.remove("hidden");
+  document.getElementById("debugPanel").classList.add("hidden");
   document.getElementById("resultsCard").classList.add("hidden");
 
   const total=csvData.rows.length;
 
   for (let i=0;i<total;i++) {
     if (aborted){addLog("⚠ Stopped at row "+(i+1));break;}
+    const row=csvData.rows[i];
+    const decFirst=(row[decFirstCol]||"").trim();
+    const decLast =(row[decLastCol] ||"").trim();
+    const street  =(row[streetCol]  ||"").trim();
+    const zip     =(row[zipCol]     ||"").trim();
+    const county  =(row[countyCol]  ||"").trim();
 
-    const row      = csvData.rows[i];
-    const decFirst = (row[decFirstCol]||"").trim();
-    const decLast  = (row[decLastCol] ||"").trim();
+    const result = await processRecord(decFirst, decLast, street, zip, county, null);
 
-    let matchStatus="none", matchReason="", sdatFirst="", sdatLast="", sdatAddr="";
-
-    if (!decLast) {
-      matchReason="No last name";
-    } else {
-      // cleanLastName strips suffixes like SR/JR from the last name field before searching
-      const {records,error} = await lookupByLastName(decLast);
-
-      if (error && !records) {
-        matchReason="Lookup error: "+error;
-        addLog(`Row ${i+1}: ${decFirst} ${decLast} — ${matchReason}`);
-      } else if (records) {
-        let bestStatus="none", bestReason="", bestFirst="", bestLast="", bestAddr="";
-
-        for (const rec of records) {
-          const o1=(rec.ownname1||"").trim();
-          const o2=(rec.ownname2||"").trim();
-          for (const candidate of [o1,o2].filter(Boolean)) {
-            const {status,reason}=classifyMatch(decFirst, decLast, candidate);
-            if (status==="confirmed") {
-              const parsed=parseSDATName(candidate);
-              bestStatus="confirmed"; bestReason=reason;
-              bestFirst=parsed.first; bestLast=parsed.last;
-              bestAddr=[rec.premsnum,rec.premsnam,rec.premcity,rec.premzip].filter(Boolean).join(" ");
-              break;
-            } else if (status==="possible" && bestStatus!=="confirmed") {
-              const parsed=parseSDATName(candidate);
-              bestStatus="possible"; bestReason=reason;
-              bestFirst=parsed.first; bestLast=parsed.last;
-              bestAddr=[rec.premsnum,rec.premsnam,rec.premcity,rec.premzip].filter(Boolean).join(" ");
-            }
-          }
-          if (bestStatus==="confirmed") break;
-        }
-
-        matchStatus=bestStatus;
-        matchReason=bestReason||`${records.length} record(s) found, no name match`;
-        sdatFirst=bestFirst; sdatLast=bestLast; sdatAddr=bestAddr;
-
-        if (matchStatus==="none") {
-          const sample=records.slice(0,2).map(r=>r.ownname1||"?").join(", ");
-          addLog(`Row ${i+1}: ❌ ${decFirst} ${decLast} — no match (SDAT: ${sample})`);
-        } else if (matchStatus==="possible") {
-          addLog(`Row ${i+1}: ⚠️ ${decFirst} ${decLast} — possible (${matchReason})`);
-        }
-      } else {
-        matchReason="No SDAT records for last name "+decLast;
-        addLog(`Row ${i+1}: ❌ ${decFirst} ${decLast} — ${matchReason}`);
-      }
+    if (result.status==="none") {
+      addLog("Row "+(i+1)+": ❌ "+decFirst+" "+decLast+" @ "+street+" — "+result.reason);
+    } else if (result.status==="possible") {
+      addLog("Row "+(i+1)+": ⚠️ "+decFirst+" "+decLast+" — possible ("+result.reason+")");
     }
 
     const outRow=Object.assign({},row);
-    outRow["_Match_Status"] = matchStatus==="confirmed"?"✅ CONFIRMED":matchStatus==="possible"?"⚠️ POSSIBLE":"❌ NO MATCH";
-    outRow["_Match_Reason"] = matchReason;
-    outRow["_SDAT_First"]   = sdatFirst;
-    outRow["_SDAT_Last"]    = sdatLast;
-    outRow["_SDAT_Address"] = sdatAddr;
+    outRow["_Match_Status"]    = result.status==="confirmed"?"✅ CONFIRMED":result.status==="possible"?"⚠️ POSSIBLE":"❌ NO MATCH";
+    outRow["_Match_Reason"]    = result.reason;
+    outRow["_SDAT_Owner_First"]= result.sdatFirst;
+    outRow["_SDAT_Owner_Last"] = result.sdatLast;
+    outRow["_SDAT_Address"]    = result.sdatAddr;
 
-    if (matchStatus==="confirmed")     confirmedRows.push(outRow);
-    else if (matchStatus==="possible") possibleRows.push(outRow);
-    else                               noMatchRows.push(outRow);
+    if (result.status==="confirmed")     confirmedRows.push(outRow);
+    else if (result.status==="possible") possibleRows.push(outRow);
+    else                                  noMatchRows.push(outRow);
 
     const pct=Math.round(((i+1)/total)*100);
     document.getElementById("progFill").style.width=pct+"%";
     document.getElementById("progText").innerHTML=
-      `${pct}% &nbsp;·&nbsp; `+
-      `<span style="color:#3fb950">${confirmedRows.length} confirmed</span> &nbsp;·&nbsp; `+
-      `<span style="color:#e3b341">${possibleRows.length} possible</span> &nbsp;·&nbsp; `+
-      `<span style="color:#f0883e">${noMatchRows.length} no match</span>`;
+      pct+"% &nbsp;·&nbsp; "+
+      "<span style='color:#3fb950'>"+confirmedRows.length+" confirmed</span> &nbsp;·&nbsp; "+
+      "<span style='color:#e3b341'>"+possibleRows.length+" possible</span> &nbsp;·&nbsp; "+
+      "<span style='color:#f0883e'>"+noMatchRows.length+" no match</span>";
 
     await new Promise(r=>setTimeout(r,120));
   }
@@ -711,7 +651,6 @@ document.getElementById("btnRun").addEventListener("click", async () => {
   document.getElementById("statPossible").textContent =possibleRows.length.toLocaleString();
   document.getElementById("statNone").textContent     =noMatchRows.length.toLocaleString();
   document.getElementById("statRate").textContent     =total?Math.round(((confirmedRows.length+possibleRows.length)/total)*100)+"%":"0%";
-
   btnRun.disabled=false; btnRun.textContent="▶  Run Verification";
   document.getElementById("btnStop").classList.add("hidden");
   document.getElementById("resultsCard").classList.remove("hidden");
@@ -720,37 +659,71 @@ document.getElementById("btnRun").addEventListener("click", async () => {
 document.getElementById("btnStop").addEventListener("click",()=>{aborted=true;});
 
 // ---------------------------------------------------------------------------
-// Download 3-tab XLSX — separate first/last name columns throughout
+// Debug — first 5 rows with full trace
+// ---------------------------------------------------------------------------
+document.getElementById("btnDebug").addEventListener("click", async () => {
+  if (!csvData){alert("Load a CSV first.");return;}
+  const { decFirstCol, decLastCol, streetCol, zipCol, countyCol } = getColValues();
+  if (!decFirstCol||!decLastCol||!streetCol||!zipCol||!countyCol) {
+    alert("Map all columns before debugging.");return;
+  }
+
+  const panel=document.getElementById("debugPanel");
+  panel.classList.remove("hidden");
+  panel.textContent="Debugging first 5 rows against SDAT...\n\n";
+
+  const sample=csvData.rows.slice(0,5);
+  for (let i=0;i<sample.length;i++) {
+    const row=sample[i];
+    const decFirst=(row[decFirstCol]||"").trim();
+    const decLast =(row[decLastCol] ||"").trim();
+    const street  =(row[streetCol]  ||"").trim();
+    const zip     =(row[zipCol]     ||"").trim();
+    const county  =(row[countyCol]  ||"").trim();
+
+    panel.textContent+="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
+    panel.textContent+="ROW "+(i+1)+": "+decFirst+" "+decLast+"\n";
+    panel.textContent+="Address: "+street+", "+zip+"  County: "+county+"\n";
+
+    const dbg = msg => { panel.textContent+=msg+"\n"; panel.scrollTop=panel.scrollHeight; };
+
+    const result = await processRecord(decFirst, decLast, street, zip, county, dbg);
+    const icon = result.status==="confirmed"?"✅":result.status==="possible"?"⚠️":"❌";
+    panel.textContent+="\n"+icon+" RESULT: "+result.status.toUpperCase()+" — "+result.reason+"\n\n";
+
+    await new Promise(r=>setTimeout(r,300));
+  }
+  panel.textContent+="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nDone. Copy and paste output here.\n";
+  panel.scrollTop=panel.scrollHeight;
+});
+
+// ---------------------------------------------------------------------------
+// Download 3-tab XLSX
 // ---------------------------------------------------------------------------
 document.getElementById("btnDownload").addEventListener("click",()=>{
   const origHeaders=csvData.headers;
-  const extraCols=["_Match_Status","_Match_Reason","_SDAT_First","_SDAT_Last","_SDAT_Address"];
+  const extraCols=["_Match_Status","_Match_Reason","_SDAT_Owner_First","_SDAT_Owner_Last","_SDAT_Address"];
   const outHeaders=[...origHeaders,...extraCols];
 
   function toSheet(rows){
     return XLSX.utils.aoa_to_sheet([outHeaders,...rows.map(r=>outHeaders.map(h=>r[h]||""))]);
   }
-  function styleHeader(ws,n,bgHex,fgHex){
+  function styleHeader(ws,n,bg,fg){
     for(let c=0;c<n;c++){
       const cell=XLSX.utils.encode_cell({r:0,c});
       if(!ws[cell])continue;
-      ws[cell].s={font:{bold:true,color:{rgb:fgHex}},fill:{fgColor:{rgb:bgHex}},alignment:{horizontal:"center"}};
+      ws[cell].s={font:{bold:true,color:{rgb:fg}},fill:{fgColor:{rgb:bg}},alignment:{horizontal:"center"}};
     }
   }
 
-  const wb=XLSX.utils.book_new();
-  const n=outHeaders.length;
-
-  const ws1=toSheet(confirmedRows); styleHeader(ws1,n,"1a3d22","3fb950");
+  const wb=XLSX.utils.book_new();const n=outHeaders.length;
+  const ws1=toSheet(confirmedRows);styleHeader(ws1,n,"1a3d22","3fb950");
   XLSX.utils.book_append_sheet(wb,ws1,"Confirmed");
-
-  const ws2=toSheet(possibleRows);  styleHeader(ws2,n,"2d2208","e3b341");
+  const ws2=toSheet(possibleRows);styleHeader(ws2,n,"2d2208","e3b341");
   XLSX.utils.book_append_sheet(wb,ws2,"Possible - Review");
-
-  const ws3=toSheet(noMatchRows);   styleHeader(ws3,n,"2d0f0e","f0883e");
+  const ws3=toSheet(noMatchRows);styleHeader(ws3,n,"2d0f0e","f0883e");
   XLSX.utils.book_append_sheet(wb,ws3,"No Match");
-
-  XLSX.writeFile(wb,`homeowner_verification_${new Date().toISOString().slice(0,10)}.xlsx`);
+  XLSX.writeFile(wb,"homeowner_verification_"+new Date().toISOString().slice(0,10)+".xlsx");
 });
 </script>
 </body>
